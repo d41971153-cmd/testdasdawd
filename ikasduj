@@ -297,6 +297,7 @@ local mainSuccess, mainError = pcall(function()
         task.spawn(function()
             while Running do
                 local data = GetClusterData()
+        
                 AutoM1ActiveGlobal = data.AutoM1 or false
                 InfiniteComboGlobal = data.InfiniteCombo or false 
                 ActiveCommandGlobal = data.Command or "STOP"
@@ -331,6 +332,22 @@ local mainSuccess, mainError = pcall(function()
                         TweenToPlayer()
                     elseif lastCommand == "ORBIT" and lastTarget ~= "" then
                         StartOrbitEngine(lastSpeed, lastRadius)
+                    elseif lastCommand == "JOIN_SERVER" then
+                        StopAllActions()
+                        pcall(function()
+                            local Event = game:GetService("ReplicatedStorage"):FindFirstChild("PS")
+                            if Event and Event:IsA("RemoteEvent") then
+                                Event:FireServer("join", "elvk32")
+                            end
+                        end)
+                        task.spawn(function()
+                            task.wait(0.5)
+                            local clearData = GetClusterData()
+                            if clearData.Command == "JOIN_SERVER" then
+                                clearData.Command = "STOP"
+                                SaveClusterData(clearData)
+                            end
+                        end)
                     elseif lastCommand == "RESPAWN" then
                         StopAllActions()
                         if LocalPlayer.Character then
@@ -436,7 +453,7 @@ local mainSuccess, mainError = pcall(function()
                         end
                     end
                 end
-                
+               
                 local baseWaitTime = InfiniteComboGlobal and 0.05 or M1FrequencyGlobal
                 local indexStaggerOffset = InfiniteComboGlobal and 0 or (BotIndexGlobal * 0.04)
                 task.wait(baseWaitTime + indexStaggerOffset) 
@@ -564,7 +581,7 @@ local mainSuccess, mainError = pcall(function()
                     if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                         local hrp = player.Character.HumanoidRootPart
                         local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
-                     
+                    
                         if onScreen then
                             local playerScreenPos = Vector2.new(screenPos.X, screenPos.Y)
                             local dist = (mousePos - playerScreenPos).Magnitude
@@ -674,7 +691,7 @@ local mainSuccess, mainError = pcall(function()
             Default = false,
             Callback = function(State) UpdateSharedMoveFile(2, State) end
         })
-        
+         
         ActionGroupBox:AddToggle('Move3Toggle', {
             Text = 'Spam Ability [ 3 ]',
             Default = false,
@@ -930,6 +947,17 @@ local mainSuccess, mainError = pcall(function()
             Tooltip = 'Prevents disconnection from 20 minute inactivity kicks.',
             Callback = function(State)
                 SetAntiAFKState(State)
+            end
+        })
+
+        -- NEW SELECTION ADDED HERE
+        SettingLeftBox:AddButton({
+            Text = 'Make Alts Join elvk32',
+            Func = function()
+                local data = GetClusterData()
+                data.Command = "JOIN_SERVER"
+                SaveClusterData(data)
+                Library:Notify("[Cluster Master]: Sent server join order to connected alts.", 2)
             end
         })
 
