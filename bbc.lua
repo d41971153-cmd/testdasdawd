@@ -932,6 +932,9 @@ AutomatorTab:AddToggle({
     end
 })
 
+-- ==========================================
+-- UTILITY HOOKS
+-- ==========================================
 AutomatorTab:AddDivider()
 AutomatorTab:AddLabel("UTILITY HOOKS")
 
@@ -1040,6 +1043,7 @@ task.spawn(function()
     end
 end)
 
+-- MAX SPEED OPTIMIZED SHOP LOOP
 task.spawn(function()
     local PurchaseEvent = ReplicatedStorage:WaitForChild("Shared")
         :WaitForChild("Resources"):WaitForChild("VendorResources")
@@ -1065,18 +1069,24 @@ task.spawn(function()
     while true do
         if not running then break end
         if vendorActive and PurchaseEvent and DismantleEvent then
-            for _, name in pairs(structuresToBuy) do
+            -- Simultaneously fire all purchase remotes using lightweight threads
+            for _, name in ipairs(structuresToBuy) do
                 if not vendorActive then break end
-                PurchaseEvent:FireServer(name)
-                delayTimer(0.3)
+                task.spawn(function()
+                    PurchaseEvent:FireServer(name)
+                end)
             end
-            delayTimer(1)
-            for _, name in pairs(structuresToDismantle) do
+            
+            -- Simultaneously fire all dismantle remotes using lightweight threads
+            for _, name in ipairs(structuresToDismantle) do
                 if not vendorActive then break end
-                DismantleEvent:FireServer(name, 1)
-                delayTimer(0.3)
+                task.spawn(function()
+                    DismantleEvent:FireServer(name, 1)
+                end)
             end
-            delayTimer(5)
+            
+            -- Rapid restart cycle delay (Down from 5s to 0.1s)
+            delayTimer(0.1)
         else
             delayTimer(0.5)
         end
@@ -1093,7 +1103,7 @@ task.spawn(function()
     while true do
         if not running then break end
         if crateActive and CrateEvent then
-            local currentLiveCash = 0  -- Fixed variable name mismatch here
+            local currentLiveCash = 0
             local hud = LocalPlayer.PlayerGui:FindFirstChild("hud")
             local cashAmount = hud and hud:WaitForChild("cashFrame"):WaitForChild("cashAmount")
             if cashAmount then
