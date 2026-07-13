@@ -580,7 +580,7 @@ local rewardActive     = SavedConfig.AutoPlaytime
 
 local Window = Framework:CreateWindow({
     Title = "Automator Controller",
-    Size = {290, 550}, -- Expanded slightly for additional utility modules
+    Size = {290, 590}, -- Height bumped slightly to seamlessly fit the new dashboard card
     Position = {0.05, 0.25},
     Footer = "PRESS [N] TO TOGGLE INTERFACE"
 })
@@ -606,7 +606,6 @@ end)
 
 -- Helper function to issue webhook dispatches safely
 local function postWebhookUpdate(isTestMsg)
-    -- FIXED: Cleaned validation to check if the field is completely empty or still using the base placeholder text.
     if not DiscordWebhookURL or DiscordWebhookURL == "" or DiscordWebhookURL == "YOUR_WEBHOOK_URL_HERE" then 
         return false, "No URL Configured" 
     end
@@ -616,6 +615,12 @@ local function postWebhookUpdate(isTestMsg)
     local mins = math.floor((totalSecs % 3600) / 60)
     local formattedTimeStr = string.format("%dh %dm", hours, mins)
 
+    -- Math to calculate Hourly Rates for Discord webhook payload
+    local cashPerHour = 0
+    if totalSecs > 0 then
+        cashPerHour = math.floor(((SavedConfig.TotalSessionEarned or 0) / totalSecs) * 3600)
+    end
+
     local data = {
         ["embeds"] = {{
             ["title"] = isTestMsg and "Test" or "report blud",
@@ -624,6 +629,7 @@ local function postWebhookUpdate(isTestMsg)
                 {["name"] = "Mythic Shards", ["value"] = "```" .. formatNumber(absoluteLastKnownShards) .. "```", ["inline"] = true},
                 {["name"] = "Total Server Reconnects", ["value"] = "```" .. tostring(SavedConfig.ReconnectCount or 0) .. "```", ["inline"] = true},
                 {["name"] = "Total Money Earned )", ["value"] = "```$" .. formatNumber(SavedConfig.TotalSessionEarned or 0) .. "```", ["inline"] = false},
+                {["name"] = "Money Per Hour", ["value"] = "```$" .. formatNumber(cashPerHour) .. "/hr```", ["inline"] = true}, -- NEW WEBHOOK FIELD
                 {["name"] = "Playtime", ["value"] = "```" .. formattedTimeStr .. "```", ["inline"] = true}
             },
             ["footer"] = {["text"] = isTestMsg and "Webhook Connection verified successfully." or "Automator Engine Live Log Update"},
@@ -654,6 +660,7 @@ DashboardTab:AddLabel("LIVE STATISTICS", {Bold = true, Color = DEFAULT_THEME.acc
 DashboardTab:AddDivider()
 
 local cashCard = DashboardTab:AddDisplayCard("Total Money Earned (Saved)", "$0", DEFAULT_THEME.accent)
+local incomeCard = DashboardTab:AddDisplayCard("Money Per Hour", "$0", DEFAULT_THEME.accent) -- NEW DASHBOARD CARD
 local shardCard = DashboardTab:AddDisplayCard("Mythic Shards", "0", DEFAULT_THEME.info)
 local sessionCard = DashboardTab:AddDisplayCard("Total Playtime (Saved)", "00h 00m 00s", DEFAULT_THEME.warning)
 local reconnectCard = DashboardTab:AddDisplayCard("Total Reconnects (Saved)", tostring(SavedConfig.ReconnectCount), DEFAULT_THEME.danger)
@@ -717,7 +724,15 @@ task.spawn(function()
                 lastObservedCash = currentLiveCash
             end
             
-            cashCard:Update("$" .. formatNumber(SavedConfig.TotalSessionEarned))
+            cashCard:Update("跳 $" .. formatNumber(SavedConfig.TotalSessionEarned))
+
+            -- Live math tracking for income per hour
+            local totalSecs = SavedConfig.TotalSessionTime or 0
+            local cashPerHour = 0
+            if totalSecs > 0 then
+                cashPerHour = math.floor(((SavedConfig.TotalSessionEarned or 0) / totalSecs) * 3600)
+            end
+            incomeCard:Update("跳 $" .. formatNumber(cashPerHour) .. " / hr") -- Updates UI Card Live
 
             local parsedShardsValue = nil
             local stats = LocalPlayer:FindFirstChild("leaderstats") or LocalPlayer:FindFirstChild("ProfileData") or LocalPlayer:FindFirstChild("skyblock")
@@ -747,7 +762,7 @@ task.spawn(function()
                 absoluteLastKnownShards = parsedShardsValue
             end
             
-            shardCard:Update(formatNumber(absoluteLastKnownShards))
+            shardCard:Update("虫 " .. formatNumber(absoluteLastKnownShards))
         end)
 
         -- Persistent time math ticking
@@ -757,7 +772,7 @@ task.spawn(function()
         local hours = math.floor(totalSecs / 3600)
         local mins = math.floor((totalSecs % 3600) / 60)
         local secs = totalSecs % 60
-        sessionCard:Update(string.format("%02dh %02dm %02ds", hours, mins, secs))
+        sessionCard:Update(string.format("竢ｳ %02dh %02dm %02ds", hours, mins, secs))
 
         if totalSecs % 5 == 0 then
             saveSettings()
@@ -856,8 +871,9 @@ AutomatorTab:AddButton({
         saveSettings()
         
         reconnectCard:Update("0")
-        cashCard:Update("$0")
-        sessionCard:Update("00h 00m 00s")
+        cashCard:Update("跳 $0")
+        incomeCard:Update("跳 $0 / hr") -- Clears income text tracker
+        sessionCard:Update("竢ｳ 00h 00m 00s")
         
         btn:SetState("success", "Reset Completed!")
         task.wait(1.5)
