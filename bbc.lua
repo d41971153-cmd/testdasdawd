@@ -108,9 +108,9 @@ local SavedConfig = {
     AutoBuyDismantle = false,
     AutoCrate = false,
     AutoPlaytime = false,
-    CrateType = "Elite",               -- Saved to Config
-    CrateMinCashRequirement = 5000000000, -- Saved to Config
-    CrateMinCashText = "5B",           -- Saved to Config
+    CrateType = "Elite",
+    CrateMinCashRequirement = 5000000000,
+    CrateMinCashText = "5B",
     ReconnectCount = 0,
     TotalSessionEarned = 0,
     TotalSessionTime = 0
@@ -631,7 +631,7 @@ local rewardActive     = SavedConfig.AutoPlaytime
 
 local Window = Framework:CreateWindow({
     Title = "Automator Controller",
-    Size = {290, 630}, -- Expanded frame to cleanly fit the live input box
+    Size = {290, 630},
     Position = {0.05, 0.25},
     Footer = "PRESS [N] TO TOGGLE INTERFACE"
 })
@@ -903,7 +903,7 @@ crateTypeBtn = AutomatorTab:AddButton({
     Callback = function(btn)
         local nextType = getNextCrateType(SavedConfig.CrateType or "Elite")
         SavedConfig.CrateType = nextType
-        saveSettings() -- SAVES Crate Type choice to json
+        saveSettings()
         btn:SetState("reset", "Crate Selected: " .. nextType)
     end
 })
@@ -915,7 +915,7 @@ AutomatorTab:AddInputField("Min Cash To Buy", SavedConfig.CrateMinCashText or "5
         if parsedVal >= 0 then
             SavedConfig.CrateMinCashRequirement = parsedVal
             SavedConfig.CrateMinCashText = text
-            saveSettings() -- SAVES parsed custom value and input text to json
+            saveSettings()
         end
     end
 end)
@@ -1093,7 +1093,7 @@ task.spawn(function()
     while true do
         if not running then break end
         if crateActive and CrateEvent then
-            local currentCash = 0
+            local currentLiveCash = 0  -- Fixed variable name mismatch here
             local hud = LocalPlayer.PlayerGui:FindFirstChild("hud")
             local cashAmount = hud and hud:WaitForChild("cashFrame"):WaitForChild("cashAmount")
             if cashAmount then
@@ -1101,7 +1101,6 @@ task.spawn(function()
                 currentLiveCash = parseCashString(rawText)
             end
 
-            -- Pulls dynamic value and choice straight from your configuration settings!
             local targetMin = SavedConfig.CrateMinCashRequirement or 5000000000
             if currentLiveCash >= targetMin then
                 CrateEvent:FireServer(SavedConfig.CrateType or "Elite", 10000)
