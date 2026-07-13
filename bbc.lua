@@ -625,7 +625,7 @@ local function postWebhookUpdate(isTestMsg)
             ["fields"] = {
                 {["name"] = "Mythic Shards", ["value"] = "```" .. formatNumber(absoluteLastKnownShards) .. "```", ["inline"] = true},
                 {["name"] = "Total Server Reconnects", ["value"] = "```" .. tostring(SavedConfig.ReconnectCount or 0) .. "```", ["inline"] = true},
-                {["name"] = "Total Money Earned )", ["value"] = "```$" .. formatNumber(SavedConfig.TotalSessionEarned or 0) .. "```", ["inline"] = false},
+                {["name"] = "Total Money Earned", ["value"] = "```$" .. formatNumber(SavedConfig.TotalSessionEarned or 0) .. "```", ["inline"] = false},
                 {["name"] = "Money Per Hour", ["value"] = "```$" .. formatNumber(cashPerHour) .. "/hr```", ["inline"] = true},
                 {["name"] = "Playtime", ["value"] = "```" .. formattedTimeStr .. "```", ["inline"] = true}
             },
@@ -656,9 +656,8 @@ local DashboardTab = Window:CreateTab("Dashboard")
 DashboardTab:AddLabel("LIVE STATISTICS", {Bold = true, Color = DEFAULT_THEME.accent})
 DashboardTab:AddDivider()
 
--- Fixed tags: Changed the broken emoji strings to clean text headers
 local cashCard = DashboardTab:AddDisplayCard("Total Money Earned (Saved)", "$0", DEFAULT_THEME.accent)
-local incomeCard = DashboardTab:AddDisplayCard("Money Per Hour", "$0", DEFAULT_THEME.accent)
+local incomeCard = DashboardTab:AddDisplayCard("Money Per Hour", "$0 / hr", DEFAULT_THEME.accent)
 local shardCard = DashboardTab:AddDisplayCard("Mythic Shards", "0", DEFAULT_THEME.info)
 local sessionCard = DashboardTab:AddDisplayCard("Total Playtime (Saved)", "00h 00m 00s", DEFAULT_THEME.warning)
 local reconnectCard = DashboardTab:AddDisplayCard("Total Reconnects (Saved)", tostring(SavedConfig.ReconnectCount), DEFAULT_THEME.danger)
