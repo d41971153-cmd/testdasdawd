@@ -1,5 +1,5 @@
 -- ==========================================
--- EMBEDDED GUI FRAMEWORK v1.5 (Ultimate Premium Optimization Edition)
+-- EMBEDDED GUI FRAMEWORK v2.9 (Network Hook & Data Sync)
 -- ==========================================
 local Framework = {}
 Framework.__index = Framework
@@ -16,36 +16,34 @@ local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 
 local DEFAULT_THEME = {
-    bg            = Color3.fromRGB(15, 17, 22),
-    surface       = Color3.fromRGB(23, 26, 33),
-    surfaceHover  = Color3.fromRGB(31, 35, 45),
-    border        = Color3.fromRGB(42, 47, 59),
-    borderActive  = Color3.fromRGB(75, 215, 145),
-    textPrimary   = Color3.fromRGB(245, 247, 250),
-    textSecondary = Color3.fromRGB(160, 168, 185),
-    textMuted     = Color3.fromRGB(105, 115, 135),
-    accent        = Color3.fromRGB(75, 215, 145),
-    accentSurface = Color3.fromRGB(22, 50, 40),
-    danger        = Color3.fromRGB(230, 80, 80),
-    dangerDim     = Color3.fromRGB(60, 25, 25),
-    warning       = Color3.fromRGB(235, 175, 65),
-    warningDim    = Color3.fromRGB(55, 45, 20),
-    info          = Color3.fromRGB(80, 160, 240),
-    infoDim       = Color3.fromRGB(25, 45, 70),
-    titleBar      = Color3.fromRGB(20, 23, 30),
-    dotOff        = Color3.fromRGB(65, 72, 88),
-    dotOn         = Color3.fromRGB(75, 215, 145),
+    bg            = Color3.fromRGB(12, 12, 14),
+    surface       = Color3.fromRGB(22, 22, 26),
+    surfaceHover  = Color3.fromRGB(30, 30, 36),
+    border        = Color3.fromRGB(38, 38, 44),
+    borderActive  = Color3.fromRGB(80, 200, 140),
+    textPrimary   = Color3.fromRGB(230, 232, 236),
+    textSecondary = Color3.fromRGB(140, 142, 148),
+    textMuted     = Color3.fromRGB(90, 92, 98),
+    accent        = Color3.fromRGB(80, 200, 140),
+    accentSurface = Color3.fromRGB(22, 50, 38),
+    danger        = Color3.fromRGB(200, 70, 70),
+    dangerDim     = Color3.fromRGB(60, 20, 20),
+    warning       = Color3.fromRGB(200, 170, 60),
+    warningDim     = Color3.fromRGB(50, 45, 20),
+    info          = Color3.fromRGB(70, 140, 210),
+    infoDim       = Color3.fromRGB(20, 40, 65),
+    titleBar = Color3.fromRGB(16, 16, 19),
+    dotOff        = Color3.fromRGB(55, 55, 62),
+    dotOn         = Color3.fromRGB(80, 200, 140),
 }
 
 local TWEEN_FAST   = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local TWEEN_SMOOTH = TweenInfo.new(0.25, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
 
-local delayTimer = task.wait
+local delayTimer = task and task.wait or wait
 
 local function tween(obj, props, info)
-    local t = TweenService:Create(obj, info or TWEEN_FAST, props)
-    t:Play()
-    return t
+    TweenService:Create(obj, info or TWEEN_FAST, props):Play()
 end
 
 local function corner(parent, radius)
@@ -91,6 +89,20 @@ local function parseCashString(text)
     return math.floor(num)
 end
 
+local function parseTimeBudget(text)
+    if not text or text == "" then return 600 end
+    local num = tonumber(string.match(text, "^%d+")) or 10
+    local suffix = string.match(text, "%a+$")
+    if suffix then
+        suffix = suffix:lower()
+        if suffix == "m" then num = num * 60
+        elseif suffix == "h" then num = num * 3600
+        elseif suffix == "s" then num = num * 1
+        end
+    end
+    return num
+end
+
 local function formatNumber(value)
     local num = tonumber(value) or 0
     local formatted = tostring(num)
@@ -112,13 +124,15 @@ local SavedConfig = {
     AutoDismantle = false,
     AutoCrate = false,
     AutoPlaytime = false,
+    BossHopActive = false,
+    BossHopTimeoutText = "10m",
+    BossHopTimeoutSeconds = 600,
     CrateType = "Elite",
     CrateMinCashRequirement = 5000000000,
     CrateMinCashText = "5B",
     ReconnectCount = 0,
     TotalSessionEarned = 0,
-    TotalSessionTime = 0,
-    CpuSaverActive = false
+    TotalSessionTime = 0
 }
 
 local function loadSettings()
@@ -154,77 +168,6 @@ local function syncTenCrateState()
     if ToggleTenEvent then
         ToggleTenEvent:FireServer()
     end
-end
-
--- ==========================================
--- GLOBAL NOTIFICATION SYSTEM (TOAST ENGINE)
--- ==========================================
-local ToastContainer = nil
-local function createToast(text, typeOfToast)
-    local targetParent = pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
-    
-    if not ToastContainer then
-        ToastContainer = Instance.new("ScreenGui")
-        ToastContainer.Name = "NotificationEngine_System"
-        ToastContainer.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-        ToastContainer.Parent = targetParent
-        
-        local layoutFrame = Instance.new("Frame")
-        layoutFrame.Name = "LayoutFrame"
-        layoutFrame.BackgroundTransparency = 1
-        layoutFrame.Position = UDim2.new(1, -290, 1, -25)
-        layoutFrame.Size = UDim2.new(0, 270, 0, 500)
-        layoutFrame.Parent = ToastContainer
-        
-        local listLayout = Instance.new("UIListLayout")
-        listLayout.Parent = layoutFrame
-        listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        listLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
-        listLayout.Padding = UDim.new(0, 8)
-    end
-    
-    local theme = DEFAULT_THEME
-    local accentColor = theme.info
-    if typeOfToast == "success" then accentColor = theme.accent
-    elseif typeOfToast == "warning" then accentColor = theme.warning
-    elseif typeOfToast == "danger" then accentColor = theme.danger end
-    
-    local item = Instance.new("Frame")
-    item.BackgroundColor3 = theme.surface
-    item.Size = UDim2.new(1, 0, 0, 0)
-    item.BorderSizePixel = 0
-    item.ClipsDescendants = true
-    item.Parent = ToastContainer.LayoutFrame
-    
-    corner(item, 6)
-    local itemStroke = stroke(item, theme.border, 1)
-    
-    local leftPill = Instance.new("Frame")
-    leftPill.BackgroundColor3 = accentColor
-    leftPill.BorderSizePixel = 0
-    leftPill.Size = UDim2.new(0, 4, 1, 0)
-    leftPill.Parent = item
-    
-    local lbl = Instance.new("TextLabel")
-    lbl.BackgroundTransparency = 1
-    lbl.Position = UDim2.new(0, 14, 0, 0)
-    lbl.Size = UDim2.new(1, -20, 1, 0)
-    lbl.Font = Enum.Font.GothamMedium
-    lbl.Text = text
-    lbl.TextColor3 = theme.textPrimary
-    lbl.TextSize = 11
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.TextWrapped = true
-    lbl.Parent = item
-    
-    tween(item, {Size = UDim2.new(1, 0, 0, 38)}, TWEEN_FAST)
-    
-    task.delay(3.5, function()
-        local t = tween(item, {Size = UDim2.new(1, 0, 0, 0)}, TWEEN_FAST)
-        t.Completed:Connect(function()
-            item:Destroy()
-        end)
-    end)
 end
 
 function Framework:CreateWindow(config)
@@ -268,10 +211,9 @@ function Framework:CreateWindow(config)
     mainFrame.Size = UDim2.new(0, width, 0, height)
     mainFrame.Active = true
     mainFrame.Draggable = true
-    mainFrame.ClipsDescendants = true
 
     corner(mainFrame, 10)
-    local mainStroke = stroke(mainFrame, theme.border, 1)
+    stroke(mainFrame, theme.border, 1)
 
     mainFrame:GetPropertyChangedSignal("Position"):Connect(function()
         shadow.Position = mainFrame.Position + UDim2.new(0, -8, 0, -8)
@@ -282,7 +224,7 @@ function Framework:CreateWindow(config)
     titleBar.Parent = mainFrame
     titleBar.BackgroundColor3 = theme.titleBar
     titleBar.BorderSizePixel = 0
-    titleBar.Size = UDim2.new(1, 0, 0, 40)
+    titleBar.Size = UDim2.new(1, 0, 0, 38)
 
     local accentLine = Instance.new("Frame")
     accentLine.Parent = titleBar
@@ -309,39 +251,27 @@ function Framework:CreateWindow(config)
     titleLabel.TextSize = 13
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 
-    local isMinimised = false
-    local minBtn = Instance.new("TextButton")
-    minBtn.Name = "Minimize"
-    minBtn.Parent = titleBar
-    minBtn.BackgroundTransparency = 1
-    minBtn.Position = UDim2.new(1, -34, 0, 0)
-    minBtn.Size = UDim2.new(0, 34, 1, 0)
-    minBtn.Font = Enum.Font.GothamBold
-    minBtn.Text = "_"
-    minBtn.TextSize = 14
-    minBtn.TextColor3 = theme.textSecondary
-    
     local tabBar = Instance.new("Frame")
     tabBar.Name = "TabBar"
     tabBar.Parent = mainFrame
     tabBar.BackgroundColor3 = theme.bg
     tabBar.BorderSizePixel = 0
-    tabBar.Position = UDim2.new(0, 0, 0, 40)
-    tabBar.Size = UDim2.new(1, 0, 0, 36)
+    tabBar.Position = UDim2.new(0, 0, 0, 38)
+    tabBar.Size = UDim2.new(1, 0, 0, 30)
     
     local tabLayout = Instance.new("UIListLayout")
     tabLayout.Parent = tabBar
     tabLayout.FillDirection = Enum.FillDirection.Horizontal
     tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    tabLayout.Padding = UDim.new(0, 6)
-    padding(tabBar, 4, 4, 14, 14)
+    tabLayout.Padding = UDim.new(0, 2)
+    padding(tabBar, 2, 2, 14, 14)
 
     local viewContainer = Instance.new("Frame")
     viewContainer.Name = "ViewContainer"
     viewContainer.Parent = mainFrame
     viewContainer.BackgroundTransparency = 1
-    viewContainer.Position = UDim2.new(0, 0, 0, 76)
-    viewContainer.Size = UDim2.new(1, 0, 1, -98)
+    viewContainer.Position = UDim2.new(0, 0, 0, 72)
+    viewContainer.Size = UDim2.new(1, 0, 1, -94)
 
     local footer = Instance.new("TextLabel")
     footer.Name = "Footer"
@@ -349,39 +279,11 @@ function Framework:CreateWindow(config)
     footer.BackgroundTransparency = 1
     footer.Position = UDim2.new(0, 14, 1, -22)
     footer.Size = UDim2.new(1, -28, 0, 16)
-    footer.Font = Enum.Font.GothamMedium
+    footer.Font = Enum.Font.Gotham
     footer.Text = config.Footer or ""
     footer.TextColor3 = theme.textMuted
     footer.TextSize = 10
     footer.TextXAlignment = Enum.TextXAlignment.Left
-
-    minBtn.MouseButton1Click:Connect(function()
-        isMinimised = not isMinimised
-        if isMinimised then
-            minBtn.Text = "+"
-            tween(mainFrame, {Size = UDim2.new(0, width, 0, 40)}, TWEEN_SMOOTH)
-            tween(shadow, {Size = UDim2.new(0, width + 16, 0, 56)}, TWEEN_SMOOTH)
-            viewContainer.Visible = false
-            tabBar.Visible = false
-            footer.Visible = false
-        else
-            minBtn.Text = "_"
-            viewContainer.Visible = true
-            tabBar.Visible = true
-            footer.Visible = true
-            tween(mainFrame, {Size = UDim2.new(0, width, 0, height)}, TWEEN_SMOOTH)
-            tween(shadow, {Size = UDim2.new(0, width + 16, 0, height + 16)}, TWEEN_SMOOTH)
-        end
-    end)
-
-    mainFrame.Size = UDim2.new(0, width, 0, height)
-    mainFrame.BackgroundTransparency = 1
-    shadow.ImageTransparency = 1
-
-    task.delay(0.05, function()
-        tween(mainFrame, {Size = UDim2.new(0, width, 0, height), BackgroundTransparency = 0}, TWEEN_SMOOTH)
-        tween(shadow, {ImageTransparency = 0.5}, TWEEN_SMOOTH)
-    end)
 
     local Window = {}
     Window.__index = Window
@@ -404,82 +306,31 @@ function Framework:CreateWindow(config)
         end
     end)
 
-    function Window:CreateTab(tabName, hasSearch)
+    function Window:CreateTab(tabName)
         local tabOrder = #self._tabs + 1
         
         local tabBtn = Instance.new("TextButton")
         tabBtn.Parent = self._tabBar
         tabBtn.BackgroundColor3 = theme.surface
         tabBtn.BorderSizePixel = 0
-        tabBtn.Size = UDim2.new(0, 85, 1, 0)
+        tabBtn.Size = UDim2.new(0, 80, 1, 0)
         tabBtn.Font = Enum.Font.GothamBold
         tabBtn.Text = tabName
         tabBtn.TextSize = 10
         tabBtn.TextColor3 = theme.textSecondary
         tabBtn.LayoutOrder = tabOrder
-        corner(tabBtn, 5)
+        corner(tabBtn, 4)
         
-        local tabStroke = stroke(tabBtn, theme.border, 1)
-
-        tabBtn.MouseEnter:Connect(function()
-            if Window._activeTab ~= Tab then
-                tween(tabBtn, {BackgroundColor3 = theme.surfaceHover, TextColor3 = theme.textPrimary})
-            end
-        end)
-        tabBtn.MouseLeave:Connect(function()
-            if Window._activeTab ~= Tab then
-                tween(tabBtn, {BackgroundColor3 = theme.surface, TextColor3 = theme.textSecondary})
-            end
-        end)
-
-        local canvasGroup = Instance.new("CanvasGroup")
-        canvasGroup.Name = tabName .. "_Canvas"
-        canvasGroup.Parent = self._viewContainer
-        canvasGroup.BackgroundTransparency = 1
-        canvasGroup.Size = UDim2.new(1, 0, 1, 0)
-        canvasGroup.GroupTransparency = 1
-        canvasGroup.Visible = false
-
-        local searchOffset = 0
-        local searchBox = nil
-        if hasSearch then
-            searchOffset = 42
-            local searchContainer = Instance.new("Frame")
-            searchContainer.BackgroundColor3 = theme.surface
-            searchContainer.Size = UDim2.new(1, -28, 0, 34)
-            searchContainer.Position = UDim2.new(0, 14, 0, 4)
-            searchContainer.Parent = canvasGroup
-            corner(searchContainer, 6)
-            local searchStroke = stroke(searchContainer, theme.border, 1)
-            
-            searchBox = Instance.new("TextBox")
-            searchBox.BackgroundTransparency = 1
-            searchBox.Size = UDim2.new(1, -20, 1, 0)
-            searchBox.Position = UDim2.new(0, 10, 0, 0)
-            searchBox.Font = Enum.Font.GothamMedium
-            searchBox.PlaceholderText = "Search configuration settings..."
-            searchBox.PlaceholderColor3 = theme.textMuted
-            searchBox.Text = ""
-            searchBox.TextColor3 = theme.textPrimary
-            searchBox.TextSize = 11
-            searchBox.TextXAlignment = Enum.TextXAlignment.Left
-            searchBox.ClearTextOnFocus = false
-            searchBox.Parent = searchContainer
-            
-            searchBox.Focused:Connect(function() tween(searchStroke, {Color = theme.borderActive}) end)
-            searchBox.FocusLost:Connect(function() tween(searchStroke, {Color = theme.border}) end)
-        end
-
         local scroller = Instance.new("ScrollingFrame")
-        scroller.Name = "Scroller"
-        scroller.Parent = canvasGroup
+        scroller.Name = tabName .. "_Container"
+        scroller.Parent = self._viewContainer
         scroller.BackgroundTransparency = 1
-        scroller.Position = UDim2.new(0, 0, 0, searchOffset)
-        scroller.Size = UDim2.new(1, 0, 1, -searchOffset)
-        scroller.ScrollBarThickness = 3
+        scroller.Size = UDim2.new(1, 0, 1, 0)
+        scroller.ScrollBarThickness = 4
         scroller.ScrollBarImageColor3 = theme.border
         scroller.CanvasSize = UDim2.new(0, 0, 0, 0)
-        padding(scroller, 4, 8, 14, 14)
+        scroller.Visible = false
+        padding(scroller, 0, 6, 14, 14)
 
         local listLayout = Instance.new("UIListLayout")
         listLayout.Parent = scroller
@@ -488,61 +339,31 @@ function Framework:CreateWindow(config)
         listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
         
         listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-            scroller.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 15)
+            scroller.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 10)
         end)
 
         local Tab = {}
-        Tab._canvas = canvasGroup
         Tab._container = scroller
         Tab._order = 0
         Tab._theme = theme
-        Tab._elements = {}
-
-        if searchBox then
-            searchBox:GetPropertyChangedSignal("Text"):Connect(function()
-                local query = searchBox.Text:lower()
-                for _, entry in pairs(Tab._elements) do
-                    if query == "" or string.find(entry.name:lower(), query) then
-                        entry.instance.Visible = true
-                    else
-                        entry.instance.Visible = false
-                    end
-                end
-            end)
-        end
 
         local function selectTab()
-            if Window._activeTab == Tab then return end
             if Window._activeTab then
-                local oldTab = Window._activeTab
-                oldTab._btn.BackgroundColor3 = theme.surface
-                oldTab._btn.TextColor3 = theme.textSecondary
-                oldTab._stroke.Color = theme.border
-                task.spawn(function()
-                    tween(oldTab._canvas, {GroupTransparency = 1}, TWEEN_FAST)
-                    task.wait(0.15)
-                    oldTab._canvas.Visible = false
-                end)
+                Window._activeTab._container.Visible = false
+                Window._activeTab._btn.BackgroundColor3 = theme.surface
+                Window._activeTab._btn.TextColor3 = theme.textSecondary
             end
             Window._activeTab = Tab
-            canvasGroup.Visible = true
-            tween(canvasGroup, {GroupTransparency = 0}, TWEEN_FAST)
+            scroller.Visible = true
             tabBtn.BackgroundColor3 = theme.accentSurface
             tabBtn.TextColor3 = theme.accent
-            tabStroke.Color = theme.borderActive
         end
 
         tabBtn.MouseButton1Click:Connect(selectTab)
         Tab._btn = tabBtn
-        Tab._stroke = tabStroke
         
         if tabOrder == 1 then
-            canvasGroup.Visible = true
-            canvasGroup.GroupTransparency = 0
-            Window._activeTab = Tab
-            tabBtn.BackgroundColor3 = theme.accentSurface
-            tabBtn.TextColor3 = theme.accent
-            tabStroke.Color = theme.borderActive
+            selectTab()
         end
 
         function Tab:AddToggle(cfg)
@@ -556,7 +377,7 @@ function Framework:CreateWindow(config)
             btn.Parent = self._container
             btn.BackgroundColor3 = theme.surface
             btn.BorderSizePixel = 0
-            btn.Size = UDim2.new(1, 0, 0, 38)
+            btn.Size = UDim2.new(1, 0, 0, 36)
             btn.Text = ""
             btn.LayoutOrder = self._order
             btn.AutoButtonColor = false
@@ -575,37 +396,22 @@ function Framework:CreateWindow(config)
             label.Parent = btn
             label.BackgroundTransparency = 1
             label.Position = UDim2.new(0, 28, 0, 0)
-            label.Size = UDim2.new(1, -75, 1, 0)
+            label.Size = UDim2.new(1, -40, 1, 0)
             label.Font = Enum.Font.GothamMedium
             label.Text = state and onText or offText
             label.TextColor3 = state and theme.textPrimary or theme.textSecondary
             label.TextSize = 11
             label.TextXAlignment = Enum.TextXAlignment.Left
 
-            local statusIndicator = Instance.new("TextLabel")
-            statusIndicator.Parent = btn
-            statusIndicator.BackgroundTransparency = 1
-            statusIndicator.Position = UDim2.new(1, -55, 0, 0)
-            statusIndicator.Size = UDim2.new(0, 45, 1, 0)
-            statusIndicator.Font = Enum.Font.GothamBold
-            statusIndicator.Text = state and "ACTIVE" or "IDLE"
-            statusIndicator.TextColor3 = state and theme.accent or theme.textMuted
-            statusIndicator.TextSize = 9
-            statusIndicator.TextXAlignment = Enum.TextXAlignment.Right
-
             local function updateVisual()
                 if state then
                     label.Text = onText
-                    statusIndicator.Text = "ACTIVE"
-                    tween(statusIndicator, {TextColor3 = theme.accent})
                     tween(label, {TextColor3 = theme.textPrimary})
                     tween(btn, {BackgroundColor3 = theme.accentSurface})
                     tween(btnStroke, {Color = theme.borderActive})
                     tween(dot, {BackgroundColor3 = theme.dotOn})
                 else
                     label.Text = offText
-                    statusIndicator.Text = "IDLE"
-                    tween(statusIndicator, {TextColor3 = theme.textMuted})
                     tween(label, {TextColor3 = theme.textSecondary})
                     tween(btn, {BackgroundColor3 = theme.surface})
                     tween(btnStroke, {Color = theme.border})
@@ -615,23 +421,12 @@ function Framework:CreateWindow(config)
 
             if state then updateVisual() end
 
-            btn.MouseEnter:Connect(function()
-                tween(btnStroke, {Color = theme.borderActive})
-                if not state then tween(btn, {BackgroundColor3 = theme.surfaceHover}) end
-            end)
-            btn.MouseLeave:Connect(function()
-                tween(btnStroke, {Color = state and theme.borderActive or theme.border})
-                if not state then tween(btn, {BackgroundColor3 = theme.surface}) end
-            end)
-
             btn.MouseButton1Click:Connect(function()
                 state = not state
                 updateVisual()
-                createToast((state and "Activated " or "Deactivated ") .. (cfg.Text or "Module"), "info")
                 if cfg.Callback then cfg.Callback(state) end
             end)
 
-            table.insert(self._elements, {name = cfg.Text or offText, instance = btn})
             local handle = {}
             function handle:SetState(newState) state = newState; updateVisual() end
             return handle
@@ -645,7 +440,7 @@ function Framework:CreateWindow(config)
             btn.Parent = self._container
             btn.BackgroundColor3 = theme.surface
             btn.BorderSizePixel = 0
-            btn.Size = UDim2.new(1, 0, 0, 38)
+            btn.Size = UDim2.new(1, 0, 0, 36)
             btn.Text = ""
             btn.LayoutOrder = self._order
             btn.AutoButtonColor = false
@@ -671,15 +466,6 @@ function Framework:CreateWindow(config)
             label.TextSize = 11
             label.TextXAlignment = Enum.TextXAlignment.Left
 
-            btn.MouseEnter:Connect(function() 
-                tween(btnStroke, {Color = theme.borderActive})
-                tween(btn, {BackgroundColor3 = theme.surfaceHover, TextColor3 = theme.textPrimary}) 
-            end)
-            btn.MouseLeave:Connect(function() 
-                tween(btnStroke, {Color = theme.border})
-                tween(btn, {BackgroundColor3 = theme.surface, TextColor3 = theme.textSecondary}) 
-            end)
-
             local handle = {}
             function handle:SetState(stateType, text)
                 if text then label.Text = text end
@@ -694,11 +480,8 @@ function Framework:CreateWindow(config)
                     tween(btnStroke, {Color = theme.border})
                 end
             end
-            
-            function handle:GetButton() return btn end
 
             btn.MouseButton1Click:Connect(function() if cfg.Callback then cfg.Callback(handle) end end)
-            table.insert(self._elements, {name = cfg.Text or "Button", instance = btn})
             return handle
         end
 
@@ -709,7 +492,7 @@ function Framework:CreateWindow(config)
             container.Parent = self._container
             container.BackgroundColor3 = theme.surface
             container.BorderSizePixel = 0
-            container.Size = UDim2.new(1, 0, 0, 38)
+            container.Size = UDim2.new(1, 0, 0, 36)
             container.LayoutOrder = self._order
             corner(container, 6)
             local containerStroke = stroke(container, theme.border, 1)
@@ -737,43 +520,30 @@ function Framework:CreateWindow(config)
             box.TextXAlignment = Enum.TextXAlignment.Right
             box.ClearTextOnFocus = false
 
-            box.Focused:Connect(function()
-                tween(containerStroke, {Color = theme.borderActive})
-            end)
+            box.Focused:Connect(function() tween(containerStroke, {Color = theme.borderActive}) end)
+            box.FocusLost:Connect(function() tween(containerStroke, {Color = theme.border}); if callback then callback(box.Text) end end)
 
-            box.FocusLost:Connect(function(enterPressed)
-                tween(containerStroke, {Color = theme.border})
-                createToast("Updated setting: " .. titleText .. " -> " .. box.Text, "success")
-                if callback then callback(box.Text) end
-            end)
-
-            table.insert(self._elements, {name = titleText, instance = container})
-            local handle = {}
-            function handle:SetText(t) box.Text = t end
-            return handle
+            return {}
         end
 
-        function Tab:AddSectionHeader(text)
+        function Tab:AddLabel(text, cfg)
+            cfg = cfg or {}
             self._order = self._order + 1
-            
-            local headerFrame = Instance.new("Frame")
-            headerFrame.Parent = self._container
-            headerFrame.BackgroundTransparency = 1
-            headerFrame.Size = UDim2.new(1, 0, 0, 24)
-            headerFrame.LayoutOrder = self._order
-            padding(headerFrame, 6, 0, 2, 0)
-            
-            local lbl = Instance.new("TextLabel")
-            lbl.Parent = headerFrame
-            lbl.BackgroundTransparency = 1
-            lbl.Size = UDim2.new(1, 0, 1, 0)
-            lbl.Font = Enum.Font.GothamBold
-            lbl.Text = string.upper(text)
-            lbl.TextColor3 = theme.accent
-            lbl.TextSize = 10
-            lbl.TextXAlignment = Enum.TextXAlignment.Left
-            
-            table.insert(self._elements, {name = text, instance = headerFrame})
+
+            local label = Instance.new("TextLabel")
+            label.Parent = self._container
+            label.BackgroundTransparency = 1
+            label.Size = UDim2.new(1, 0, 0, cfg.Height or 20)
+            label.Font = cfg.Bold and Enum.Font.GothamBold or Enum.Font.GothamMedium
+            label.Text = text or ""
+            label.TextColor3 = cfg.Color or theme.textMuted
+            label.TextSize = cfg.TextSize or 11
+            label.TextXAlignment = Enum.TextXAlignment.Left
+            label.LayoutOrder = self._order
+
+            local handle = {}
+            function handle:SetText(t) label.Text = t end
+            return handle
         end
 
         function Tab:AddDisplayCard(titleText, defaultVal, dotColor)
@@ -782,7 +552,7 @@ function Framework:CreateWindow(config)
             local card = Instance.new("Frame")
             card.Parent = self._container
             card.BackgroundColor3 = theme.surface
-            card.Size = UDim2.new(1, 0, 0, 44)
+            card.Size = UDim2.new(1, 0, 0, 42)
             card.BorderSizePixel = 0
             card.LayoutOrder = self._order
             corner(card, 6)
@@ -842,7 +612,87 @@ function Framework:CreateWindow(config)
 end
 
 -- ==========================================
--- SYSTEM CONFIGURATION
+-- REAL-TIME NETWORK & DATA ISOLATION ENGINE (v2.9)
+-- ==========================================
+local cachedShardObj = nil
+local forcedUIRefreshNeeded = true
+
+local function getShardCount()
+    -- 1. Scan ProfileData & leaderstats Values (Instantly changes upon dismantle server execution)
+    if cachedShardObj and cachedShardObj:Parent() then
+        return tonumber(cachedShardObj.Value) or 0
+    end
+    
+    local searchTrees = { LocalPlayer:FindFirstChild("ProfileData"), LocalPlayer:FindFirstChild("leaderstats"), LocalPlayer }
+    for _, source in ipairs(searchTrees) do
+        if source then
+            local exact = source:FindFirstChild("MythicShards") or source:FindFirstChild("Shards") or source:FindFirstChild("MythicShard")
+            if exact and exact:IsA("ValueBase") then
+                cachedShardObj = exact
+                return tonumber(exact.Value) or 0
+            end
+            for _, child in ipairs(source:GetDescendants()) do
+                if child:IsA("ValueBase") and (string.find(child.Name, "Shard") or string.find(child.Name, "Mythic")) then
+                    cachedShardObj = child
+                    return tonumber(child.Value) or 0
+                end
+            end
+        end
+    end
+    
+    -- 2. UI Fallback (Scans layout structures cleanly)
+    local hud = LocalPlayer.PlayerGui:FindFirstChild("hud")
+    if hud then
+        for _, object in ipairs(hud:GetDescendants()) do
+            if object:IsA("TextLabel") and object.Visible and string.match(object.Text, "^%d+$") then
+                local p = object.Parent
+                if p and (p:IsA("Frame") or p:IsA("GuiObject")) then
+                    local hasPlusButton = false
+                    local hasShardKeywords = false
+                    
+                    for _, sibling in ipairs(p:GetChildren()) do
+                        if (sibling:IsA("TextButton") or sibling:IsA("ImageButton")) and (sibling.Text == "+" or string.find(string.lower(sibling.Name), "plus") or string.find(string.lower(sibling.Name), "add")) then
+                            hasPlusButton = true
+                        end
+                        if string.find(string.lower(sibling.Name), "shard") or string.find(string.lower(sibling.Name), "mythic") then
+                            hasShardKeywords = true
+                        end
+                    end
+                    
+                    if string.find(string.lower(p.Name), "shard") or string.find(string.lower(p.Name), "mythic") then
+                        hasShardKeywords = true
+                    end
+                    
+                    if hasPlusButton or hasShardKeywords then
+                        return tonumber(object.Text) or 0
+                    end
+                end
+            end
+        end
+    end
+    return 0
+end
+
+local function triggerServerHop()
+    local Http = game:GetService("HttpService")
+    local Teleport = game:GetService("TeleportService")
+    pcall(function()
+        local rawData = game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100")
+        local serverList = Http:JSONDecode(rawData)
+        if serverList and serverList.data then
+            for _, server in ipairs(serverList.data) do
+                if server.playing and server.playing < server.maxPlayers and server.id ~= game.JobId then
+                    Teleport:TeleportToPlaceInstance(game.PlaceId, server.id, LocalPlayer)
+                    return
+                end
+            end
+        end
+        Teleport:Teleport(game.PlaceId, LocalPlayer)
+    end)
+end
+
+-- ==========================================
+-- INITIALIZE AUTOMATION SYSTEM GUI
 -- ==========================================
 local running = true
 local DiscordWebhookURL = "https://discord.com/api/webhooks/1526157590445166643/C8p3HqSdBMMJeJiuwkyHYvbK_2azl_eVAPaIOkQln0_U2Qx9xckIPU0HGmtUu9OhYRG0"
@@ -856,28 +706,27 @@ local buyActive         = SavedConfig.AutoBuy
 local dismantleActive   = SavedConfig.AutoDismantle
 local crateActive      = SavedConfig.AutoCrate
 local rewardActive     = SavedConfig.AutoPlaytime
-local cpuSaverActive   = SavedConfig.CpuSaverActive
 
 local Window = Framework:CreateWindow({
     Title = "Automator Controller",
-    Size = {295, 680},
+    Size = {295, 610},
     Position = {0.05, 0.25},
     Footer = "PRESS [N] TO TOGGLE INTERFACE"
 })
+
+-- Network Intercept Hooks to Force Metric Refreshes On Action Execution
+local DismantleEvent = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Resources"):WaitForChild("VendorResources"):WaitForChild("Remotes"):WaitForChild("DismantleMythicStructure")
+if DismantleEvent and DismantleEvent:IsA("RemoteEvent") then
+    DismantleEvent.OnClientEvent:Connect(function()
+        forcedUIRefreshNeeded = true
+    end)
+end
 
 task.spawn(function()
     delayTimer(1)
     syncTenCrateState()
 end)
 
--- Initialize rendering status safely based on loaded state
-if cpuSaverActive then
-    RunService:Set3dRenderingEnabled(false)
-end
-
--- ==========================================
--- ANTI-AFK IMMUNITY HOOK
--- ==========================================
 task.spawn(function()
     LocalPlayer.Idled:Connect(function()
         if running then
@@ -888,54 +737,44 @@ task.spawn(function()
     end)
 end)
 
-local function postWebhookUpdate(isTestMsg)
-    if not DiscordWebhookURL or DiscordWebhookURL == "" or DiscordWebhookURL == "YOUR_WEBHOOK_URL_HERE" then 
-        return false, "No URL Configured" 
-    end
-
+local function postWebhookUpdate(customMessage)
+    if not DiscordWebhookURL or DiscordWebhookURL == "" then return end
     local totalSecs = SavedConfig.TotalSessionTime or 0
-    local hours = math.floor(totalSecs / 3600)
-    local mins = math.floor((totalSecs % 3600) / 60)
-    local formattedTimeStr = string.format("%dh %dm", hours, mins)
+    local cashPerHour = totalSecs > 0 and math.floor(((SavedConfig.TotalSessionEarned or 0) / totalSecs) * 3600) or 0
+    local formattedTimeStr = string.format("%dh %dm", math.floor(totalSecs / 3600), math.floor((totalSecs % 3600) / 60))
 
-    local cashPerHour = 0
-    if totalSecs > 0 then
-        cashPerHour = math.floor(((SavedConfig.TotalSessionEarned or 0) / totalSecs) * 3600)
+    local fields = {
+        {["name"] = "Mythic Shards", ["value"] = "```" .. formatNumber(absoluteLastKnownShards) .. "```", ["inline"] = true},
+        {["name"] = "Server Reconnects", ["value"] = "```" .. tostring(SavedConfig.ReconnectCount or 0) .. "```", ["inline"] = true},
+        {["name"] = "Total Money Earned", ["value"] = "```$" .. formatNumber(SavedConfig.TotalSessionEarned or 0) .. "```", ["inline"] = false},
+        {["name"] = "Money Per Hour", ["value"] = "```$" .. formatNumber(cashPerHour) .. "/hr```", ["inline"] = true},
+        {["name"] = "Playtime", ["value"] = "```" .. formattedTimeStr .. "```", ["inline"] = true}
+    }
+
+    if customMessage then
+        table.insert(fields, 1, {["name"] = "System Notice Alert", ["value"] = "**" .. customMessage .. "**", ["inline"] = false})
     end
 
     local data = {
         ["embeds"] = {{
-            ["title"] = isTestMsg and "Test" or "report blud",
-            ["color"] = isTestMsg and 15844367 or 527196,
-            ["fields"] = {
-                {["name"] = "Mythic Shards", ["value"] = "```" .. formatNumber(absoluteLastKnownShards) .. "```", ["inline"] = true},
-                {["name"] = "Total Server Reconnects", ["value"] = "```" .. tostring(SavedConfig.ReconnectCount or 0) .. "```", ["inline"] = true},
-                {["name"] = "Total Money Earned", ["value"] = "```$" .. formatNumber(SavedConfig.TotalSessionEarned or 0) .. "```", ["inline"] = false},
-                {["name"] = "Money Per Hour", ["value"] = "```$" .. formatNumber(cashPerHour) .. "/hr```", ["inline"] = true},
-                {["name"] = "Playtime", ["value"] = "```" .. formattedTimeStr .. "```", ["inline"] = true}
-            },
-            ["footer"] = {["text"] = isTestMsg and "Webhook Connection verified successfully." or "Automator Engine Live Log Update"},
+            ["title"] = "Automator Statistics Report",
+            ["color"] = customMessage and 16731136 or 527196,
+            ["fields"] = fields,
+            ["footer"] = {["text"] = "Automator Engine Live Log Update"},
             ["timestamp"] = DateTime.now():ToIsoDate()
         }}
     }
-
-    local jsonPayload = HttpService:JSONEncode(data)
-    local success, err = pcall(function()
+    pcall(function()
         local httpFunc = request or http_request or (syn and syn.request)
-        if httpFunc then
-            httpFunc({Url = DiscordWebhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = jsonPayload})
-        else
-            error("Executor missing generic HTTP Pipeline support.")
-        end
+        if httpFunc then httpFunc({Url = DiscordWebhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(data)}) end
     end)
-    return success, err
 end
 
 -- ==========================================
 -- TAB 1: DASHBOARD TRACKERS
 -- ==========================================
-local DashboardTab = Window:CreateTab("Dashboard", false)
-DashboardTab:AddSectionHeader("Live Statistics")
+local DashboardTab = Window:CreateTab("Dashboard")
+DashboardTab:AddLabel("LIVE STATISTICS", {Bold = true, Color = DEFAULT_THEME.accent})
 DashboardTab:AddDivider()
 
 local cashCard = DashboardTab:AddDisplayCard("Total Money Earned (Saved)", "$0", DEFAULT_THEME.accent)
@@ -944,374 +783,216 @@ local shardCard = DashboardTab:AddDisplayCard("Mythic Shards", "0", DEFAULT_THEM
 local sessionCard = DashboardTab:AddDisplayCard("Total Playtime (Saved)", "00h 00m 00s", DEFAULT_THEME.warning)
 local reconnectCard = DashboardTab:AddDisplayCard("Total Reconnects (Saved)", tostring(SavedConfig.ReconnectCount), DEFAULT_THEME.danger)
 
--- ==========================================
--- AUTO RECONNECT BACKGROUND HANDLER
--- ==========================================
-task.spawn(function()
-    GuiService.ErrorMessageChanged:Connect(function()
-        Window._footer.Text = "Disconnected! Tracking reconnect..."
-        Window._footer.TextColor3 = DEFAULT_THEME.danger
-        
-        SavedConfig.ReconnectCount = (SavedConfig.ReconnectCount or 0) + 1
-        saveSettings()
-        reconnectCard:Update(tostring(SavedConfig.ReconnectCount))
-        
-        -- Safely fallback rendering to normal if disconnected so the reconnect screen updates cleanly
-        RunService:Set3dRenderingEnabled(true)
-        
-        delayTimer(5)
-        
-        local success, err = pcall(function()
-            if #Players:GetPlayers() <= 1 then
-                TeleportService:Teleport(game.PlaceId, LocalPlayer)
-            else
-                TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
-            end
-        end)
-        
-        if not success then
-            TeleportService:Teleport(game.PlaceId, LocalPlayer)
-        end
-    end)
-end)
-
 task.spawn(function()
     while running do
         pcall(function()
             local hud = LocalPlayer.PlayerGui:FindFirstChild("hud")
-            local cashFrame = hud and hud:FindFirstChild("cashFrame")
-            local cashAmount = cashFrame and cashFrame:FindFirstChild("cashAmount")
-            
-            local currentLiveCash = 0
-            if cashAmount then
-                local textSrc = cashAmount.ContentText ~= "" and cashAmount.ContentText or cashAmount.Text
-                currentLiveCash = parseCashString(textSrc)
-            else
-                local stats = LocalPlayer:FindFirstChild("leaderstats") or LocalPlayer:FindFirstChild("ProfileData")
-                local cashObj = stats and (stats:FindFirstChild("Cash") or stats:FindFirstChild("Money") or stats:FindFirstChild("Coins"))
-                if cashObj then currentLiveCash = cashObj.Value end
-            end
+            local cashAmount = hud and hud:FindFirstChild("cashFrame") and hud.cashFrame:FindFirstChild("cashAmount")
+            local currentLiveCash = cashAmount and parseCashString(cashAmount.ContentText ~= "" and cashAmount.ContentText or cashAmount.Text) or 0
 
             if currentLiveCash > 0 then
-                if not initialCashValue then
-                    initialCashValue = currentLiveCash
-                    lastObservedCash = currentLiveCash
-                end
-
-                if currentLiveCash > lastObservedCash then
-                    local difference = currentLiveCash - lastObservedCash
-                    SavedConfig.TotalSessionEarned = (SavedConfig.TotalSessionEarned or 0) + difference
-                end
+                if not initialCashValue then initialCashValue = currentLiveCash; lastObservedCash = currentLiveCash end
+                if currentLiveCash > lastObservedCash then SavedConfig.TotalSessionEarned = (SavedConfig.TotalSessionEarned or 0) + (currentLiveCash - lastObservedCash) end
                 lastObservedCash = currentLiveCash
             end
             
             cashCard:Update("$" .. formatNumber(SavedConfig.TotalSessionEarned))
-
             local totalSecs = SavedConfig.TotalSessionTime or 0
-            local cashPerHour = 0
-            if totalSecs > 0 then
-                cashPerHour = math.floor(((SavedConfig.TotalSessionEarned or 0) / totalSecs) * 3600)
-            end
-            incomeCard:Update("$" .. formatNumber(cashPerHour) .. " / hr")
+            incomeCard:Update("$" .. formatNumber(totalSecs > 0 and math.floor((SavedConfig.TotalSessionEarned / totalSecs) * 3600) or 0) .. " / hr")
 
-            local parsedShardsValue = nil
-            local stats = LocalPlayer:FindFirstChild("leaderstats") or LocalPlayer:FindFirstChild("ProfileData") or LocalPlayer:FindFirstChild("skyblock")
-            if stats then
-                local foundObj = stats:FindFirstChild("Shards") or stats:FindFirstChild("MythicShards") or stats:FindFirstChild("MythicShard")
-                if foundObj and foundObj:IsA("ValueBase") then
-                    parsedShardsValue = tonumber(foundObj.Value)
-                end
+            -- Perform core value evaluation
+            local newShards = getShardCount()
+            if newShards ~= absoluteLastKnownShards or forcedUIRefreshNeeded then
+                absoluteLastKnownShards = newShards
+                shardCard:Update(formatNumber(absoluteLastKnownShards))
+                forcedUIRefreshNeeded = false
             end
-            
-            if not parsedShardsValue then
-                local mythicFrame = hud and hud:FindFirstChild("mythicShardFrame")
-                local title = mythicFrame and mythicFrame:FindFirstChild("title")
-                local shardFrame = title and title:FindFirstChild("shardFrame")
-                local amountLabel = shardFrame and shardFrame:FindFirstChild("amount")
-
-                if amountLabel and amountLabel.Text ~= "" then
-                    local shardSrc = amountLabel.ContentText ~= "" and amountLabel.ContentText or amountLabel.Text
-                    local uiCheckValue = parseCashString(shardSrc)
-                    if uiCheckValue ~= 999999 and uiCheckValue > 0 then
-                        parsedShardsValue = uiCheckValue
-                    end
-                end
-            end
-            
-            if parsedShardsValue and parsedShardsValue ~= 999999 then
-                absoluteLastKnownShards = parsedShardsValue
-            end
-            
-            shardCard:Update(formatNumber(absoluteLastKnownShards))
         end)
 
         SavedConfig.TotalSessionTime = (SavedConfig.TotalSessionTime or 0) + 1
-        
         local totalSecs = SavedConfig.TotalSessionTime
-        local hours = math.floor(totalSecs / 3600)
-        local mins = math.floor((totalSecs % 3600) / 60)
-        local secs = totalSecs % 60
-        sessionCard:Update(string.format("%02dh %02dm %02ds", hours, mins, secs))
-
-        if totalSecs % 5 == 0 then
-            saveSettings()
-        end
-
+        sessionCard:Update(string.format("%02dh %02dm %02ds", math.floor(totalSecs/3600), math.floor((totalSecs%3600)/60), totalSecs%60))
+        if totalSecs % 5 == 0 then saveSettings() end
         delayTimer(1)
     end
 end)
 
--- ==========================================
--- AUTOMATIC DISCORD WEBHOOK CRON THREAD
--- ==========================================
 task.spawn(function()
-    task.wait(10)
-    while running do
-        postWebhookUpdate(false)
-        task.wait(3600)
-    end
+    GuiService.ErrorMessageChanged:Connect(function()
+        SavedConfig.ReconnectCount = (SavedConfig.ReconnectCount or 0) + 1
+        saveSettings()
+        delayTimer(5)
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+    end)
 end)
 
 -- ==========================================
--- TAB 2: AUTOMATOR CONTROLS (WITH SEARCH MECHANIC)
+-- TAB 2: AUTOMATOR CONTROLS
 -- ==========================================
-local AutomatorTab = Window:CreateTab("Automator", true)
-
-AutomatorTab:AddSectionHeader("Plot System Loops")
+local AutomatorTab = Window:CreateTab("Automator")
+AutomatorTab:AddLabel("PLOT SYSTEM LOOPS", {Bold = true, Color = DEFAULT_THEME.accent})
 AutomatorTab:AddDivider()
 
 AutomatorTab:AddToggle({
-    Text = "Auto Collect Buildings",
+    Text = "Auto Boss Everhop Hunt",
+    Default = SavedConfig.BossHopActive,
+    Callback = function(state) SavedConfig.BossHopActive = state; saveSettings() end
+})
+
+AutomatorTab:AddInputField("Boss Timeout Fallback", SavedConfig.BossHopTimeoutText or "10m", function(text)
+    local secs = parseTimeBudget(text)
+    if secs > 0 then
+        SavedConfig.BossHopTimeoutSeconds = secs
+        SavedConfig.BossHopTimeoutText = text
+        saveSettings()
+    end
+end)
+
+AutomatorTab:AddToggle({
+    Text = "Auto Collect Loop",
     Default = SavedConfig.AutoCollect,
-    OnText = "Auto Collect: ON",
-    OffText = "Auto Collect: OFF",
-    Callback = function(state)
-        collectingActive = state
-        SavedConfig.AutoCollect = state
-        saveSettings()
-    end
+    Callback = function(state) collectingActive = state; SavedConfig.AutoCollect = state; saveSettings() end
 })
 
 AutomatorTab:AddToggle({
-    Text = "Auto Buy Vendor Shop",
+    Text = "Auto Buy Active",
     Default = SavedConfig.AutoBuy,
-    OnText = "Auto Buy Shop: ON",
-    OffText = "Auto Buy Shop: OFF",
-    Callback = function(state)
-        buyActive = state
-        SavedConfig.AutoBuy = state
-        saveSettings()
-    end
+    Callback = function(state) buyActive = state; SavedConfig.AutoBuy = state; saveSettings() end
 })
 
 AutomatorTab:AddToggle({
-    Text = "Auto Dismantle Mythics",
+    Text = "Auto Dismantle Active",
     Default = SavedConfig.AutoDismantle,
-    OnText = "Auto Dismantle: ON",
-    OffText = "Auto Dismantle: OFF",
-    Callback = function(state)
-        dismantleActive = state
-        SavedConfig.AutoDismantle = state
-        saveSettings()
-    end
+    Callback = function(state) dismantleActive = state; SavedConfig.AutoDismantle = state; saveSettings() end
 })
 
 AutomatorTab:AddToggle({
-    Text = "Auto Crate Open Loop",
+    Text = "Auto Crate Loop",
     Default = SavedConfig.AutoCrate,
-    OnText = "Auto Crate Loop: ON",
-    OffText = "Auto Crate Loop: OFF",
-    Callback = function(state)
-        crateActive = state
-        SavedConfig.AutoCrate = state
-        saveSettings()
-        if state then syncTenCrateState() end
-    end
+    Callback = function(state) crateActive = state; SavedConfig.AutoCrate = state; saveSettings() if state then syncTenCrateState() end end
 })
 
 local crateTypes = {"Elite", "Titan", "Decorative", "Standard", "Golden"}
-local function getNextCrateType(current)
-    for i, v in ipairs(crateTypes) do
-        if v == current then
-            return crateTypes[i % #crateTypes + 1]
-        end
-    end
-    return "Elite"
-end
-
-local crateTypeBtn
-crateTypeBtn = AutomatorTab:AddButton({
+AutomatorTab:AddButton({
     Text = "Crate Selected: " .. (SavedConfig.CrateType or "Elite"),
-    DotColor = DEFAULT_THEME.info,
     Callback = function(btn)
-        local nextType = getNextCrateType(SavedConfig.CrateType or "Elite")
-        SavedConfig.CrateType = nextType
+        local curr = SavedConfig.CrateType or "Elite"
+        for i, v in ipairs(crateTypes) do if v == curr then SavedConfig.CrateType = crateTypes[i % #crateTypes + 1] break end end
         saveSettings()
-        btn:SetState("reset", "Crate Selected: " .. nextType)
-        createToast("Crate rotation set to: " .. nextType, "info")
+        btn:SetState("reset", "Crate Selected: " .. SavedConfig.CrateType)
     end
 })
 
 AutomatorTab:AddInputField("Min Cash To Buy", SavedConfig.CrateMinCashText or "5B", function(text)
-    if text and text ~= "" then
-        local parsedVal = parseCashString(text)
-        if parsedVal >= 0 then
-            SavedConfig.CrateMinCashRequirement = parsedVal
-            SavedConfig.CrateMinCashText = text
-            saveSettings()
-        end
-    end
+    local p = parseCashString(text)
+    if p >= 0 then SavedConfig.CrateMinCashRequirement = p; SavedConfig.CrateMinCashText = text; saveSettings() end
 end)
 
 AutomatorTab:AddToggle({
     Text = "Auto Playtime Rewards",
     Default = SavedConfig.AutoPlaytime,
-    OnText = "Auto Playtime: ON",
-    OffText = "Auto Playtime: OFF",
-    Callback = function(state)
-        rewardActive = state
-        SavedConfig.AutoPlaytime = state
-        saveSettings()
-    end
+    Callback = function(state) rewardActive = state; SavedConfig.AutoPlaytime = state; saveSettings() end
 })
 
--- ==========================================
--- OPTIMIZATION & RESOURCE MANAGEMENT CONTROLS
--- ==========================================
 AutomatorTab:AddDivider()
-AutomatorTab:AddSectionHeader("Performance Configuration")
-
-AutomatorTab:AddToggle({
-    Text = "Auto-Optimize Performance",
-    Default = SavedConfig.CpuSaverActive,
-    OnText = "GPU Saver: MAXIMUM ENABLED",
-    OffText = "GPU Saver: DISABLED",
-    Callback = function(state)
-        cpuSaverActive = state
-        SavedConfig.CpuSaverActive = state
-        saveSettings()
-        
-        -- Safely lock or release 3D Rendering engine on hardware thread
-        RunService:Set3dRenderingEnabled(not state)
-        
-        if state then
-            createToast("3D World Rendering Disabled! GPU usage optimized.", "warning")
-        else
-            createToast("3D World Rendering Restored to default.", "success")
-        end
-    end
-})
-
--- ==========================================
--- UTILITY HOOKS
--- ==========================================
-AutomatorTab:AddDivider()
-AutomatorTab:AddSectionHeader("Utility Handlers")
+AutomatorTab:AddLabel("UTILITY HOOKS")
 
 AutomatorTab:AddButton({
-    Text = "Reset Cached Counters to 0",
-    DotColor = DEFAULT_THEME.warning,
-    Callback = function(btn)
-        SavedConfig.ReconnectCount = 0
-        SavedConfig.TotalSessionEarned = 0
-        SavedConfig.TotalSessionTime = 0
+    Text = "Reset All Saved Trackers to 0",
+    Callback = function()
+        SavedConfig.ReconnectCount = 0; SavedConfig.TotalSessionEarned = 0; SavedConfig.TotalSessionTime = 0
         saveSettings()
-        
-        reconnectCard:Update("0")
-        cashCard:Update("$0")
-        incomeCard:Update("$0 / hr")
-        sessionCard:Update("00h 00m 00s")
-        
-        createToast("Session database cache cleared successfully", "success")
     end
 })
 
 AutomatorTab:AddButton({
-    Text = "Force Test Discord Webhook",
-    DotColor = DEFAULT_THEME.accent,
-    Callback = function(btn)
-        btn:SetState("loading", "Sending Post...")
-        local ok, err = postWebhookUpdate(true)
-        if ok then
-            btn:SetState("reset")
-            createToast("Discord payload synchronized successfully!", "success")
-        else
-            btn:SetState("reset")
-            createToast("Failed: Webhook delivery failure.", "danger")
-            warn("Webhook execution error details: ", tostring(err))
-        end
-    end
+    Text = "Force Update Discord Webhook",
+    Callback = function() postWebhookUpdate() end
 })
 
 AutomatorTab:AddButton({
     Text = "Launch Infinite Yield",
-    DotColor = DEFAULT_THEME.info,
-    Callback = function(btn)
-        btn:SetState("loading", "Executing...")
-        local success, err = pcall(function()
-            local content = game:HttpGet('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source', true)
-            loadstring(content)()
-        end)
-        if success then
-            btn:SetState("reset")
-            createToast("Infinite Yield injected into environment.", "success")
-        else
-            btn:SetState("reset")
-            createToast("Execution failure on payload hook.", "danger")
-            warn("Failed to load Infinite Yield: " .. tostring(err))
-        end
+    Callback = function()
+        loadstring(game:HttpGet(('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source'), true))()
     end
 })
 
 AutomatorTab:AddButton({
-    Text = "Unload UI Interface Script",
-    DotColor = DEFAULT_THEME.danger,
-    Callback = function(btn)
-        createToast("Deconstructing operational pipelines...", "warning")
-        running = false
-        collectingActive = false
-        buyActive = false
-        dismantleActive = false
-        crateActive = false
-        rewardActive = false
-        
-        -- Safe absolute fallback recovery to guarantee interface isn't locked on removal
-        RunService:Set3dRenderingEnabled(true)
-        
-        task.wait(0.4)
+    Text = "Unload UI Script",
+    Callback = function()
+        running = false; collectingActive = false; buyActive = false; dismantleActive = false; crateActive = false; rewardActive = false
+        task.wait(0.2)
         Window._screenGui:Destroy()
     end
 })
 
 -- ==========================================
--- BACKGROUND AUTOMATION ENGINE THREADS
+-- BACKGROUND AUTOMATION EXECUTION THREADS
 -- ==========================================
 
--- REALLY FAST PACED COLLECTOR (NON-INSTANT)
 task.spawn(function()
-    local Shared = ReplicatedStorage:WaitForChild("Shared", 5)
-    local Resources = Shared and Shared:WaitForChild("Resources", 5)
-    local PlotResources = Resources and Resources:WaitForChild("PlotResources", 5)
-    local Remotes = PlotResources and PlotResources:WaitForChild("Remotes", 5)
-    local Event = Remotes and Remotes:WaitForChild("Collect", 5)
-
-    local plotName = LocalPlayer.Name .. "'s plot"
-    local structuresFolder = workspace:WaitForChild("Plots", 5)
-        and workspace.Plots:WaitForChild(plotName, 5)
-        and workspace.Plots[plotName]:WaitForChild("baseplate", 5)
-        and workspace.Plots[plotName].baseplate:WaitForChild("Structures", 5)
-
+    task.wait(4)
     while true do
         if not running then break end
-        if collectingActive and Event and structuresFolder then
-            for _, tower in pairs(structuresFolder:GetChildren()) do
-                if not collectingActive then break end
-                if tower:IsA("Instance") then
-                    Event:FireServer(tower)
-                    task.wait(0.01)
+        if SavedConfig.BossHopActive then
+            local activeUnits = workspace:FindFirstChild("ActiveUnits")
+            local foundBoss = nil
+            
+            if activeUnits then
+                for _, obj in ipairs(activeUnits:GetChildren()) do
+                    if string.find(string.upper(obj.Name), "BOSS:") then
+                        foundBoss = obj
+                        break
+                    end
                 end
             end
-            delayTimer(0.2)
+            
+            if foundBoss then
+                local bossLabelName = foundBoss.Name
+                local startTime = os.time()
+                local timeoutLimit = SavedConfig.BossHopTimeoutSeconds or 600
+                local timedOut = false
+                
+                while SavedConfig.BossHopActive and foundBoss and foundBoss:IsDescendantOf(workspace) do
+                    if (os.time() - startTime) >= timeoutLimit then
+                        timedOut = true
+                        break
+                    end
+                    task.wait(1)
+                end
+                
+                if SavedConfig.BossHopActive then
+                    if timedOut then
+                        postWebhookUpdate("Boss target execution took too long (Exceeded " .. (SavedConfig.BossHopTimeoutText or "10m") .. ")! Forcing fallback serverhop...")
+                    else
+                        postWebhookUpdate("Boss Defeated: " .. bossLabelName .. "! Serverhopping now...")
+                    end
+                    task.wait(1)
+                    triggerServerHop()
+                    task.wait(10)
+                end
+            else
+                postWebhookUpdate("No boss found in server. Hopping to find another...")
+                task.wait(1)
+                triggerServerHop()
+                task.wait(10)
+            end
+        end
+        task.wait(2)
+    end
+end)
+
+task.spawn(function()
+    local Shared = ReplicatedStorage:WaitForChild("Shared")
+    local Event = Shared:WaitForChild("Resources"):WaitForChild("PlotResources"):WaitForChild("Remotes"):WaitForChild("Collect")
+    local plotName = LocalPlayer.Name .. "'s plot"
+    
+    while true do
+        if not running then break end
+        local folder = workspace:FindFirstChild("Plots") and workspace.Plots:FindFirstChild(plotName) and workspace.Plots[plotName]:FindFirstChild("baseplate") and workspace.Plots[plotName].baseplate:FindFirstChild("Structures")
+        if collectingActive and Event and folder then
+            for _, tower in pairs(folder:GetChildren()) do if not collectingActive then break end Event:FireServer(tower) task.wait(0.01) end
+            delayTimer(1)
         else
             delayTimer(0.5)
         end
@@ -1319,26 +1000,17 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    local PurchaseEvent = ReplicatedStorage:WaitForChild("Shared")
-        :WaitForChild("Resources"):WaitForChild("VendorResources")
-        :WaitForChild("Remotes"):WaitForChild("PurchaseStructure")
-
+    local PurchaseEvent = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Resources"):WaitForChild("VendorResources"):WaitForChild("Remotes"):WaitForChild("PurchaseStructure")
     local structuresToBuy = {
         "Corporate Campus", "Luxury Resort", "Semiconductor Plant", "Cookie Stand",
         "Shield Generator", "Behemoth Fortress", "Officer Quarters", "Fleet Command",
         "Heavy Weapons Depot", "Naval Shipyard", "ATC Tower", "Field Tent",
         "Regional Depot", "Cargo Dockyard", "Advanced Supply Depot",
     }
-
     while true do
         if not running then break end
         if buyActive and PurchaseEvent then
-            for _, name in ipairs(structuresToBuy) do
-                if not buyActive then break end
-                task.spawn(function()
-                    PurchaseEvent:FireServer(name)
-                end)
-            end
+            for _, name in ipairs(structuresToBuy) do if not buyActive then break end task.spawn(function() PurchaseEvent:FireServer(name) end) end
             delayTimer(0.1)
         else
             delayTimer(0.5)
@@ -1347,25 +1019,21 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    local DismantleEvent = ReplicatedStorage:WaitForChild("Shared")
-        :WaitForChild("Resources"):WaitForChild("VendorResources")
-        :WaitForChild("Remotes"):WaitForChild("DismantleMythicStructure")
-
     local structuresToDismantle = {
         "Cookie Stand", "Shield Generator", "Behemoth Fortress", "Officer Quarters",
         "Fleet Command", "Heavy Weapons Depot", "Naval Shipyard", "ATC Tower", "Field Tent",
         "Cobra Helipad", "Tank Warehouse"
     }
-
     while true do
         if not running then break end
         if dismantleActive and DismantleEvent then
-            for _, name in ipairs(structuresToDismantle) do
-                if not dismantleActive then break end
-                task.spawn(function()
-                    DismantleEvent:FireServer(name, 1)
-                end)
+            for _, name in ipairs(structuresToDismantle) do 
+                if not dismantleActive then break end 
+                task.spawn(function() 
+                    DismantleEvent:FireServer(name, 1) 
+                end) 
             end
+            forcedUIRefreshNeeded = true
             delayTimer(0.1)
         else
             delayTimer(0.5)
@@ -1374,26 +1042,17 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    local LootCrateRemotes = ReplicatedStorage:WaitForChild("Shared")
-        :WaitForChild("Resources"):WaitForChild("LootCrateResources")
-        :WaitForChild("Remotes")
-
-    local CrateEvent = LootCrateRemotes:WaitForChild("OpenLootCrate")
-
+    local CrateEvent = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Resources"):WaitForChild("LootCrateResources"):WaitForChild("Remotes"):WaitForChild("OpenLootCrate")
     while true do
         if not running then break end
         if crateActive and CrateEvent then
-            local currentLiveCash = 0
             local hud = LocalPlayer.PlayerGui:FindFirstChild("hud")
             local cashAmount = hud and hud:WaitForChild("cashFrame"):WaitForChild("cashAmount")
-            if cashAmount then
-                local rawText = cashAmount.ContentText ~= "" and cashAmount.ContentText or cashAmount.Text
-                currentLiveCash = parseCashString(rawText)
-            end
+            local currentLiveCash = cashAmount and parseCashString(cashAmount.ContentText ~= "" and cashAmount.ContentText or cashAmount.Text) or 0
 
-            local targetMin = SavedConfig.CrateMinCashRequirement or 5000000000
-            if currentLiveCash >= targetMin then
+            if currentLiveCash >= (SavedConfig.CrateMinCashRequirement or 5000000000) then
                 CrateEvent:FireServer(SavedConfig.CrateType or "Elite", 10000)
+                forcedUIRefreshNeeded = true
                 delayTimer(5)
             else
                 delayTimer(1)
@@ -1405,18 +1064,11 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    local RewardEvent = ReplicatedStorage:WaitForChild("Shared")
-        :WaitForChild("Resources"):WaitForChild("RewardResources")
-        :WaitForChild("Remotes"):WaitForChild("ClaimPlaytimeReward")
-
+    local RewardEvent = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Resources"):WaitForChild("RewardResources"):WaitForChild("Remotes"):WaitForChild("ClaimPlaytimeReward")
     while true do
         if not running then break end
         if rewardActive and RewardEvent then
-            for i = 1, 6 do
-                if not rewardActive then break end
-                RewardEvent:FireServer(i)
-                delayTimer(0.5)
-            end
+            for i = 1, 6 do if not rewardActive then break end RewardEvent:FireServer(i) delayTimer(0.5) end
             delayTimer(30)
         else
             delayTimer(0.5)
