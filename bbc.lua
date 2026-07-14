@@ -1,5 +1,5 @@
 -- ==========================================
--- EMBEDDED GUI FRAMEWORK v1.1 (Tab Support)
+-- EMBEDDED GUI FRAMEWORK v1.4 (Ultimate Premium Edition)
 -- ==========================================
 local Framework = {}
 Framework.__index = Framework
@@ -15,34 +15,36 @@ local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 
 local DEFAULT_THEME = {
-    bg            = Color3.fromRGB(12, 12, 14),
-    surface       = Color3.fromRGB(22, 22, 26),
-    surfaceHover  = Color3.fromRGB(30, 30, 36),
-    border        = Color3.fromRGB(38, 38, 44),
-    borderActive  = Color3.fromRGB(80, 200, 140),
-    textPrimary   = Color3.fromRGB(230, 232, 236),
-    textSecondary = Color3.fromRGB(140, 142, 148),
-    textMuted     = Color3.fromRGB(90, 92, 98),
-    accent        = Color3.fromRGB(80, 200, 140),
-    accentSurface = Color3.fromRGB(22, 50, 38),
-    danger        = Color3.fromRGB(200, 70, 70),
-    dangerDim     = Color3.fromRGB(60, 20, 20),
-    warning       = Color3.fromRGB(200, 170, 60),
-    warningDim    = Color3.fromRGB(50, 45, 20),
-    info          = Color3.fromRGB(70, 140, 210),
-    infoDim       = Color3.fromRGB(20, 40, 65),
-    titleBar      = Color3.fromRGB(16, 16, 19),
-    dotOff        = Color3.fromRGB(55, 55, 62),
-    dotOn         = Color3.fromRGB(80, 200, 140),
+    bg            = Color3.fromRGB(15, 17, 22),
+    surface       = Color3.fromRGB(23, 26, 33),
+    surfaceHover  = Color3.fromRGB(31, 35, 45),
+    border        = Color3.fromRGB(42, 47, 59),
+    borderActive  = Color3.fromRGB(75, 215, 145),
+    textPrimary   = Color3.fromRGB(245, 247, 250),
+    textSecondary = Color3.fromRGB(160, 168, 185),
+    textMuted     = Color3.fromRGB(105, 115, 135),
+    accent        = Color3.fromRGB(75, 215, 145),
+    accentSurface = Color3.fromRGB(22, 50, 40),
+    danger        = Color3.fromRGB(230, 80, 80),
+    dangerDim     = Color3.fromRGB(60, 25, 25),
+    warning       = Color3.fromRGB(235, 175, 65),
+    warningDim    = Color3.fromRGB(55, 45, 20),
+    info          = Color3.fromRGB(80, 160, 240),
+    infoDim       = Color3.fromRGB(25, 45, 70),
+    titleBar      = Color3.fromRGB(20, 23, 30),
+    dotOff        = Color3.fromRGB(65, 72, 88),
+    dotOn         = Color3.fromRGB(75, 215, 145),
 }
 
-local TWEEN_FAST   = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local TWEEN_SMOOTH = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local TWEEN_FAST   = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local TWEEN_SMOOTH = TweenInfo.new(0.25, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
 
-local delayTimer = task and task.wait or wait
+local delayTimer = task.wait
 
 local function tween(obj, props, info)
-    TweenService:Create(obj, info or TWEEN_FAST, props):Play()
+    local t = TweenService:Create(obj, info or TWEEN_FAST, props)
+    t:Play()
+    return t
 end
 
 local function corner(parent, radius)
@@ -152,6 +154,77 @@ local function syncTenCrateState()
     end
 end
 
+-- ==========================================
+-- GLOBAL NOTIFICATION SYSTEM (TOAST ENGINE)
+-- ==========================================
+local ToastContainer = nil
+local function createToast(text, typeOfToast)
+    local targetParent = pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+    
+    if not ToastContainer then
+        ToastContainer = Instance.new("ScreenGui")
+        ToastContainer.Name = "NotificationEngine_System"
+        ToastContainer.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        ToastContainer.Parent = targetParent
+        
+        local layoutFrame = Instance.new("Frame")
+        layoutFrame.Name = "LayoutFrame"
+        layoutFrame.BackgroundTransparency = 1
+        layoutFrame.Position = UDim2.new(1, -290, 1, -25)
+        layoutFrame.Size = UDim2.new(0, 270, 0, 500)
+        layoutFrame.Parent = ToastContainer
+        
+        local listLayout = Instance.new("UIListLayout")
+        listLayout.Parent = layoutFrame
+        listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        listLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+        listLayout.Padding = UDim.new(0, 8)
+    end
+    
+    local theme = DEFAULT_THEME
+    local accentColor = theme.info
+    if typeOfToast == "success" then accentColor = theme.accent
+    elseif typeOfToast == "warning" then accentColor = theme.warning
+    elseif typeOfToast == "danger" then accentColor = theme.danger end
+    
+    local item = Instance.new("Frame")
+    item.BackgroundColor3 = theme.surface
+    item.Size = UDim2.new(1, 0, 0, 0)
+    item.BorderSizePixel = 0
+    item.ClipsDescendants = true
+    item.Parent = ToastContainer.LayoutFrame
+    
+    corner(item, 6)
+    local itemStroke = stroke(item, theme.border, 1)
+    
+    local leftPill = Instance.new("Frame")
+    leftPill.BackgroundColor3 = accentColor
+    leftPill.BorderSizePixel = 0
+    leftPill.Size = UDim2.new(0, 4, 1, 0)
+    leftPill.Parent = item
+    
+    local lbl = Instance.new("TextLabel")
+    lbl.BackgroundTransparency = 1
+    lbl.Position = UDim2.new(0, 14, 0, 0)
+    lbl.Size = UDim2.new(1, -20, 1, 0)
+    lbl.Font = Enum.Font.GothamMedium
+    lbl.Text = text
+    lbl.TextColor3 = theme.textPrimary
+    lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextWrapped = true
+    lbl.Parent = item
+    
+    tween(item, {Size = UDim2.new(1, 0, 0, 38)}, TWEEN_FAST)
+    
+    task.delay(3.5, function()
+        local t = tween(item, {Size = UDim2.new(1, 0, 0, 0)}, TWEEN_FAST)
+        t.Completed:Connect(function()
+            item:Destroy()
+        end)
+    end)
+end
+
 function Framework:CreateWindow(config)
     config = config or {}
     local theme = DEFAULT_THEME
@@ -193,9 +266,10 @@ function Framework:CreateWindow(config)
     mainFrame.Size = UDim2.new(0, width, 0, height)
     mainFrame.Active = true
     mainFrame.Draggable = true
+    mainFrame.ClipsDescendants = true
 
     corner(mainFrame, 10)
-    stroke(mainFrame, theme.border, 1)
+    local mainStroke = stroke(mainFrame, theme.border, 1)
 
     mainFrame:GetPropertyChangedSignal("Position"):Connect(function()
         shadow.Position = mainFrame.Position + UDim2.new(0, -8, 0, -8)
@@ -206,7 +280,7 @@ function Framework:CreateWindow(config)
     titleBar.Parent = mainFrame
     titleBar.BackgroundColor3 = theme.titleBar
     titleBar.BorderSizePixel = 0
-    titleBar.Size = UDim2.new(1, 0, 0, 38)
+    titleBar.Size = UDim2.new(1, 0, 0, 40)
 
     local accentLine = Instance.new("Frame")
     accentLine.Parent = titleBar
@@ -233,27 +307,40 @@ function Framework:CreateWindow(config)
     titleLabel.TextSize = 13
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 
+    -- Clean minimizing system implementation
+    local isMinimised = false
+    local minBtn = Instance.new("TextButton")
+    minBtn.Name = "Minimize"
+    minBtn.Parent = titleBar
+    minBtn.BackgroundTransparency = 1
+    minBtn.Position = UDim2.new(1, -34, 0, 0)
+    minBtn.Size = UDim2.new(0, 34, 1, 0)
+    minBtn.Font = Enum.Font.GothamBold
+    minBtn.Text = "_"
+    minBtn.TextSize = 14
+    minBtn.TextColor3 = theme.textSecondary
+    
     local tabBar = Instance.new("Frame")
     tabBar.Name = "TabBar"
     tabBar.Parent = mainFrame
     tabBar.BackgroundColor3 = theme.bg
     tabBar.BorderSizePixel = 0
-    tabBar.Position = UDim2.new(0, 0, 0, 38)
-    tabBar.Size = UDim2.new(1, 0, 0, 30)
+    tabBar.Position = UDim2.new(0, 0, 0, 40)
+    tabBar.Size = UDim2.new(1, 0, 0, 36)
     
     local tabLayout = Instance.new("UIListLayout")
     tabLayout.Parent = tabBar
     tabLayout.FillDirection = Enum.FillDirection.Horizontal
     tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    tabLayout.Padding = UDim.new(0, 2)
-    padding(tabBar, 2, 2, 14, 14)
+    tabLayout.Padding = UDim.new(0, 6)
+    padding(tabBar, 4, 4, 14, 14)
 
     local viewContainer = Instance.new("Frame")
     viewContainer.Name = "ViewContainer"
     viewContainer.Parent = mainFrame
     viewContainer.BackgroundTransparency = 1
-    viewContainer.Position = UDim2.new(0, 0, 0, 72)
-    viewContainer.Size = UDim2.new(1, 0, 1, -94)
+    viewContainer.Position = UDim2.new(0, 0, 0, 76)
+    viewContainer.Size = UDim2.new(1, 0, 1, -98)
 
     local footer = Instance.new("TextLabel")
     footer.Name = "Footer"
@@ -261,11 +348,30 @@ function Framework:CreateWindow(config)
     footer.BackgroundTransparency = 1
     footer.Position = UDim2.new(0, 14, 1, -22)
     footer.Size = UDim2.new(1, -28, 0, 16)
-    footer.Font = Enum.Font.Gotham
+    footer.Font = Enum.Font.GothamMedium
     footer.Text = config.Footer or ""
     footer.TextColor3 = theme.textMuted
     footer.TextSize = 10
     footer.TextXAlignment = Enum.TextXAlignment.Left
+
+    minBtn.MouseButton1Click:Connect(function()
+        isMinimised = not isMinimised
+        if isMinimised then
+            minBtn.Text = "+"
+            tween(mainFrame, {Size = UDim2.new(0, width, 0, 40)}, TWEEN_SMOOTH)
+            tween(shadow, {Size = UDim2.new(0, width + 16, 0, 56)}, TWEEN_SMOOTH)
+            viewContainer.Visible = false
+            tabBar.Visible = false
+            footer.Visible = false
+        else
+            minBtn.Text = "_"
+            viewContainer.Visible = true
+            tabBar.Visible = true
+            footer.Visible = true
+            tween(mainFrame, {Size = UDim2.new(0, width, 0, height)}, TWEEN_SMOOTH)
+            tween(shadow, {Size = UDim2.new(0, width + 16, 0, height + 16)}, TWEEN_SMOOTH)
+        end
+    end)
 
     mainFrame.Size = UDim2.new(0, width, 0, height)
     mainFrame.BackgroundTransparency = 1
@@ -297,31 +403,83 @@ function Framework:CreateWindow(config)
         end
     end)
 
-    function Window:CreateTab(tabName)
+    function Window:CreateTab(tabName, hasSearch)
         local tabOrder = #self._tabs + 1
         
         local tabBtn = Instance.new("TextButton")
         tabBtn.Parent = self._tabBar
         tabBtn.BackgroundColor3 = theme.surface
         tabBtn.BorderSizePixel = 0
-        tabBtn.Size = UDim2.new(0, 80, 1, 0)
+        tabBtn.Size = UDim2.new(0, 85, 1, 0)
         tabBtn.Font = Enum.Font.GothamBold
         tabBtn.Text = tabName
         tabBtn.TextSize = 10
         tabBtn.TextColor3 = theme.textSecondary
         tabBtn.LayoutOrder = tabOrder
-        corner(tabBtn, 4)
+        corner(tabBtn, 5)
         
+        local tabStroke = stroke(tabBtn, theme.border, 1)
+
+        tabBtn.MouseEnter:Connect(function()
+            if Window._activeTab ~= Tab then
+                tween(tabBtn, {BackgroundColor3 = theme.surfaceHover, TextColor3 = theme.textPrimary})
+            end
+        end)
+        tabBtn.MouseLeave:Connect(function()
+            if Window._activeTab ~= Tab then
+                tween(tabBtn, {BackgroundColor3 = theme.surface, TextColor3 = theme.textSecondary})
+            end
+        end)
+
+        local canvasGroup = Instance.new("CanvasGroup")
+        canvasGroup.Name = tabName .. "_Canvas"
+        canvasGroup.Parent = self._viewContainer
+        canvasGroup.BackgroundTransparency = 1
+        canvasGroup.Size = UDim2.new(1, 0, 1, 0)
+        canvasGroup.GroupTransparency = 1
+        canvasGroup.Visible = false
+
+        -- Integrated filter mechanism header area
+        local searchOffset = 0
+        local searchBox = nil
+        if hasSearch then
+            searchOffset = 42
+            local searchContainer = Instance.new("Frame")
+            searchContainer.BackgroundColor3 = theme.surface
+            searchContainer.Size = UDim2.new(1, -28, 0, 34)
+            searchContainer.Position = UDim2.new(0, 14, 0, 4)
+            searchContainer.Parent = canvasGroup
+            corner(searchContainer, 6)
+            local searchStroke = stroke(searchContainer, theme.border, 1)
+            
+            searchBox = Instance.new("TextBox")
+            searchBox.BackgroundTransparency = 1
+            searchBox.Size = UDim2.new(1, -20, 1, 0)
+            searchBox.Position = UDim2.new(0, 10, 0, 0)
+            searchBox.Font = Enum.Font.GothamMedium
+            searchBox.PlaceholderText = "Search configuration settings..."
+            searchBox.PlaceholderColor3 = theme.textMuted
+            searchBox.Text = ""
+            searchBox.TextColor3 = theme.textPrimary
+            searchBox.TextSize = 11
+            searchBox.TextXAlignment = Enum.TextXAlignment.Left
+            searchBox.ClearTextOnFocus = false
+            searchBox.Parent = searchContainer
+            
+            searchBox.Focused:Connect(function() tween(searchStroke, {Color = theme.borderActive}) end)
+            searchBox.FocusLost:Connect(function() tween(searchStroke, {Color = theme.border}) end)
+        end
+
         local scroller = Instance.new("ScrollingFrame")
-        scroller.Name = tabName .. "_Container"
-        scroller.Parent = self._viewContainer
+        scroller.Name = "Scroller"
+        scroller.Parent = canvasGroup
         scroller.BackgroundTransparency = 1
-        scroller.Size = UDim2.new(1, 0, 1, 0)
-        scroller.ScrollBarThickness = 4
+        scroller.Position = UDim2.new(0, 0, 0, searchOffset)
+        scroller.Size = UDim2.new(1, 0, 1, -searchOffset)
+        scroller.ScrollBarThickness = 3
         scroller.ScrollBarImageColor3 = theme.border
         scroller.CanvasSize = UDim2.new(0, 0, 0, 0)
-        scroller.Visible = false
-        padding(scroller, 0, 6, 14, 14)
+        padding(scroller, 4, 8, 14, 14)
 
         local listLayout = Instance.new("UIListLayout")
         listLayout.Parent = scroller
@@ -330,31 +488,62 @@ function Framework:CreateWindow(config)
         listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
         
         listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-            scroller.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 10)
+            scroller.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 15)
         end)
 
         local Tab = {}
+        Tab._canvas = canvasGroup
         Tab._container = scroller
         Tab._order = 0
         Tab._theme = theme
+        Tab._elements = {}
+
+        -- Live search matching processor
+        if searchBox then
+            searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+                local query = searchBox.Text:lower()
+                for _, entry in pairs(Tab._elements) do
+                    if query == "" or string.find(entry.name:lower(), query) then
+                        entry.instance.Visible = true
+                    else
+                        entry.instance.Visible = false
+                    end
+                end
+            end)
+        end
 
         local function selectTab()
+            if Window._activeTab == Tab then return end
             if Window._activeTab then
-                Window._activeTab._container.Visible = false
-                Window._activeTab._btn.BackgroundColor3 = theme.surface
-                Window._activeTab._btn.TextColor3 = theme.textSecondary
+                local oldTab = Window._activeTab
+                oldTab._btn.BackgroundColor3 = theme.surface
+                oldTab._btn.TextColor3 = theme.textSecondary
+                oldTab._stroke.Color = theme.border
+                task.spawn(function()
+                    tween(oldTab._canvas, {GroupTransparency = 1}, TWEEN_FAST)
+                    task.wait(0.15)
+                    oldTab._canvas.Visible = false
+                end)
             end
             Window._activeTab = Tab
-            scroller.Visible = true
+            canvasGroup.Visible = true
+            tween(canvasGroup, {GroupTransparency = 0}, TWEEN_FAST)
             tabBtn.BackgroundColor3 = theme.accentSurface
             tabBtn.TextColor3 = theme.accent
+            tabStroke.Color = theme.borderActive
         end
 
         tabBtn.MouseButton1Click:Connect(selectTab)
         Tab._btn = tabBtn
+        Tab._stroke = tabStroke
         
         if tabOrder == 1 then
-            selectTab()
+            canvasGroup.Visible = true
+            canvasGroup.GroupTransparency = 0
+            Window._activeTab = Tab
+            tabBtn.BackgroundColor3 = theme.accentSurface
+            tabBtn.TextColor3 = theme.accent
+            tabStroke.Color = theme.borderActive
         end
 
         function Tab:AddToggle(cfg)
@@ -368,7 +557,7 @@ function Framework:CreateWindow(config)
             btn.Parent = self._container
             btn.BackgroundColor3 = theme.surface
             btn.BorderSizePixel = 0
-            btn.Size = UDim2.new(1, 0, 0, 36)
+            btn.Size = UDim2.new(1, 0, 0, 38)
             btn.Text = ""
             btn.LayoutOrder = self._order
             btn.AutoButtonColor = false
@@ -387,22 +576,37 @@ function Framework:CreateWindow(config)
             label.Parent = btn
             label.BackgroundTransparency = 1
             label.Position = UDim2.new(0, 28, 0, 0)
-            label.Size = UDim2.new(1, -40, 1, 0)
+            label.Size = UDim2.new(1, -75, 1, 0)
             label.Font = Enum.Font.GothamMedium
             label.Text = state and onText or offText
             label.TextColor3 = state and theme.textPrimary or theme.textSecondary
             label.TextSize = 11
             label.TextXAlignment = Enum.TextXAlignment.Left
 
+            local statusIndicator = Instance.new("TextLabel")
+            statusIndicator.Parent = btn
+            statusIndicator.BackgroundTransparency = 1
+            statusIndicator.Position = UDim2.new(1, -55, 0, 0)
+            statusIndicator.Size = UDim2.new(0, 45, 1, 0)
+            statusIndicator.Font = Enum.Font.GothamBold
+            statusIndicator.Text = state and "ACTIVE" or "IDLE"
+            statusIndicator.TextColor3 = state and theme.accent or theme.textMuted
+            statusIndicator.TextSize = 9
+            statusIndicator.TextXAlignment = Enum.TextXAlignment.Right
+
             local function updateVisual()
                 if state then
                     label.Text = onText
+                    statusIndicator.Text = "ACTIVE"
+                    tween(statusIndicator, {TextColor3 = theme.accent})
                     tween(label, {TextColor3 = theme.textPrimary})
                     tween(btn, {BackgroundColor3 = theme.accentSurface})
                     tween(btnStroke, {Color = theme.borderActive})
                     tween(dot, {BackgroundColor3 = theme.dotOn})
                 else
                     label.Text = offText
+                    statusIndicator.Text = "IDLE"
+                    tween(statusIndicator, {TextColor3 = theme.textMuted})
                     tween(label, {TextColor3 = theme.textSecondary})
                     tween(btn, {BackgroundColor3 = theme.surface})
                     tween(btnStroke, {Color = theme.border})
@@ -412,12 +616,24 @@ function Framework:CreateWindow(config)
 
             if state then updateVisual() end
 
+            -- Interactivity glow implementation
+            btn.MouseEnter:Connect(function()
+                tween(btnStroke, {Color = theme.borderActive})
+                if not state then tween(btn, {BackgroundColor3 = theme.surfaceHover}) end
+            end)
+            btn.MouseLeave:Connect(function()
+                tween(btnStroke, {Color = state and theme.borderActive or theme.border})
+                if not state then tween(btn, {BackgroundColor3 = theme.surface}) end
+            end)
+
             btn.MouseButton1Click:Connect(function()
                 state = not state
                 updateVisual()
+                createToast((state and "Activated " or "Deactivated ") .. (cfg.Text or "Module"), "info")
                 if cfg.Callback then cfg.Callback(state) end
             end)
 
+            table.insert(self._elements, {name = cfg.Text or offText, instance = btn})
             local handle = {}
             function handle:SetState(newState) state = newState; updateVisual() end
             return handle
@@ -431,7 +647,7 @@ function Framework:CreateWindow(config)
             btn.Parent = self._container
             btn.BackgroundColor3 = theme.surface
             btn.BorderSizePixel = 0
-            btn.Size = UDim2.new(1, 0, 0, 36)
+            btn.Size = UDim2.new(1, 0, 0, 38)
             btn.Text = ""
             btn.LayoutOrder = self._order
             btn.AutoButtonColor = false
@@ -457,8 +673,14 @@ function Framework:CreateWindow(config)
             label.TextSize = 11
             label.TextXAlignment = Enum.TextXAlignment.Left
 
-            btn.MouseEnter:Connect(function() tween(btn, {BackgroundColor3 = theme.surfaceHover}) end)
-            btn.MouseLeave:Connect(function() tween(btn, {BackgroundColor3 = theme.surface}) end)
+            btn.MouseEnter:Connect(function() 
+                tween(btnStroke, {Color = theme.borderActive})
+                tween(btn, {BackgroundColor3 = theme.surfaceHover, TextColor3 = theme.textPrimary}) 
+            end)
+            btn.MouseLeave:Connect(function() 
+                tween(btnStroke, {Color = theme.border})
+                tween(btn, {BackgroundColor3 = theme.surface, TextColor3 = theme.textSecondary}) 
+            end)
 
             local handle = {}
             function handle:SetState(stateType, text)
@@ -478,6 +700,7 @@ function Framework:CreateWindow(config)
             function handle:GetButton() return btn end
 
             btn.MouseButton1Click:Connect(function() if cfg.Callback then cfg.Callback(handle) end end)
+            table.insert(self._elements, {name = cfg.Text or "Button", instance = btn})
             return handle
         end
 
@@ -488,7 +711,7 @@ function Framework:CreateWindow(config)
             container.Parent = self._container
             container.BackgroundColor3 = theme.surface
             container.BorderSizePixel = 0
-            container.Size = UDim2.new(1, 0, 0, 36)
+            container.Size = UDim2.new(1, 0, 0, 38)
             container.LayoutOrder = self._order
             corner(container, 6)
             local containerStroke = stroke(container, theme.border, 1)
@@ -522,32 +745,37 @@ function Framework:CreateWindow(config)
 
             box.FocusLost:Connect(function(enterPressed)
                 tween(containerStroke, {Color = theme.border})
+                createToast("Updated setting: " .. titleText .. " -> " .. box.Text, "success")
                 if callback then callback(box.Text) end
             end)
 
+            table.insert(self._elements, {name = titleText, instance = container})
             local handle = {}
             function handle:SetText(t) box.Text = t end
             return handle
         end
 
-        function Tab:AddLabel(text, cfg)
-            cfg = cfg or {}
+        function Tab:AddSectionHeader(text)
             self._order = self._order + 1
-
-            local label = Instance.new("TextLabel")
-            label.Parent = self._container
-            label.BackgroundTransparency = 1
-            label.Size = UDim2.new(1, 0, 0, cfg.Height or 20)
-            label.Font = cfg.Bold and Enum.Font.GothamBold or Enum.Font.GothamMedium
-            label.Text = text or ""
-            label.TextColor3 = cfg.Color or theme.textMuted
-            label.TextSize = cfg.TextSize or 11
-            label.TextXAlignment = Enum.TextXAlignment.Left
-            label.LayoutOrder = self._order
-
-            local handle = {}
-            function handle:SetText(t) label.Text = t end
-            return handle
+            
+            local headerFrame = Instance.new("Frame")
+            headerFrame.Parent = self._container
+            headerFrame.BackgroundTransparency = 1
+            headerFrame.Size = UDim2.new(1, 0, 0, 24)
+            headerFrame.LayoutOrder = self._order
+            padding(headerFrame, 6, 0, 2, 0)
+            
+            local lbl = Instance.new("TextLabel")
+            lbl.Parent = headerFrame
+            lbl.BackgroundTransparency = 1
+            lbl.Size = UDim2.new(1, 0, 1, 0)
+            lbl.Font = Enum.Font.GothamBold
+            lbl.Text = string.upper(text)
+            lbl.TextColor3 = theme.accent
+            lbl.TextSize = 10
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            
+            table.insert(self._elements, {name = text, instance = headerFrame})
         end
 
         function Tab:AddDisplayCard(titleText, defaultVal, dotColor)
@@ -556,7 +784,7 @@ function Framework:CreateWindow(config)
             local card = Instance.new("Frame")
             card.Parent = self._container
             card.BackgroundColor3 = theme.surface
-            card.Size = UDim2.new(1, 0, 0, 42)
+            card.Size = UDim2.new(1, 0, 0, 44)
             card.BorderSizePixel = 0
             card.LayoutOrder = self._order
             corner(card, 6)
@@ -633,7 +861,7 @@ local rewardActive     = SavedConfig.AutoPlaytime
 
 local Window = Framework:CreateWindow({
     Title = "Automator Controller",
-    Size = {290, 670}, -- Expanded size dynamically to fit the new button safely
+    Size = {295, 680},
     Position = {0.05, 0.25},
     Footer = "PRESS [N] TO TOGGLE INTERFACE"
 })
@@ -689,12 +917,9 @@ local function postWebhookUpdate(isTestMsg)
 
     local jsonPayload = HttpService:JSONEncode(data)
     local success, err = pcall(function()
-        if request then
-            request({Url = DiscordWebhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = jsonPayload})
-        elseif http_request then
-            http_request({Url = DiscordWebhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = jsonPayload})
-        elseif syn and syn.request then
-            syn.request({Url = DiscordWebhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = jsonPayload})
+        local httpFunc = request or http_request or (syn and syn.request)
+        if httpFunc then
+            httpFunc({Url = DiscordWebhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = jsonPayload})
         else
             error("Executor missing generic HTTP Pipeline support.")
         end
@@ -705,8 +930,8 @@ end
 -- ==========================================
 -- TAB 1: DASHBOARD TRACKERS
 -- ==========================================
-local DashboardTab = Window:CreateTab("Dashboard")
-DashboardTab:AddLabel("LIVE STATISTICS", {Bold = true, Color = DEFAULT_THEME.accent})
+local DashboardTab = Window:CreateTab("Dashboard", false)
+DashboardTab:AddSectionHeader("Live Statistics")
 DashboardTab:AddDivider()
 
 local cashCard = DashboardTab:AddDisplayCard("Total Money Earned (Saved)", "$0", DEFAULT_THEME.accent)
@@ -841,15 +1066,15 @@ task.spawn(function()
 end)
 
 -- ==========================================
--- TAB 2: AUTOMATOR CONTROLS
+-- TAB 2: AUTOMATOR CONTROLS (WITH SEARCH MECHANIC)
 -- ==========================================
-local AutomatorTab = Window:CreateTab("Automator")
+local AutomatorTab = Window:CreateTab("Automator", true)
 
-AutomatorTab:AddLabel("PLOT SYSTEM CONTROLS", {Bold = true, Color = DEFAULT_THEME.accent})
+AutomatorTab:AddSectionHeader("Plot System Loops")
 AutomatorTab:AddDivider()
 
 AutomatorTab:AddToggle({
-    Text = "Auto Collect",
+    Text = "Auto Collect Buildings",
     Default = SavedConfig.AutoCollect,
     OnText = "Auto Collect: ON",
     OffText = "Auto Collect: OFF",
@@ -860,9 +1085,8 @@ AutomatorTab:AddToggle({
     end
 })
 
--- SPLIT TOGGLE 1: BUY
 AutomatorTab:AddToggle({
-    Text = "Auto Buy Shop",
+    Text = "Auto Buy Vendor Shop",
     Default = SavedConfig.AutoBuy,
     OnText = "Auto Buy Shop: ON",
     OffText = "Auto Buy Shop: OFF",
@@ -873,9 +1097,8 @@ AutomatorTab:AddToggle({
     end
 })
 
--- SPLIT TOGGLE 2: DISMANTLE
 AutomatorTab:AddToggle({
-    Text = "Auto Dismantle",
+    Text = "Auto Dismantle Mythics",
     Default = SavedConfig.AutoDismantle,
     OnText = "Auto Dismantle: ON",
     OffText = "Auto Dismantle: OFF",
@@ -887,7 +1110,7 @@ AutomatorTab:AddToggle({
 })
 
 AutomatorTab:AddToggle({
-    Text = "Auto Crate Loop",
+    Text = "Auto Crate Open Loop",
     Default = SavedConfig.AutoCrate,
     OnText = "Auto Crate Loop: ON",
     OffText = "Auto Crate Loop: OFF",
@@ -895,10 +1118,7 @@ AutomatorTab:AddToggle({
         crateActive = state
         SavedConfig.AutoCrate = state
         saveSettings()
-        
-        if state then
-            syncTenCrateState()
-        end
+        if state then syncTenCrateState() end
     end
 })
 
@@ -921,10 +1141,10 @@ crateTypeBtn = AutomatorTab:AddButton({
         SavedConfig.CrateType = nextType
         saveSettings()
         btn:SetState("reset", "Crate Selected: " .. nextType)
+        createToast("Crate rotation set to: " .. nextType, "info")
     end
 })
 
--- MONEY REQUIREMENT INPUT FIELD
 AutomatorTab:AddInputField("Min Cash To Buy", SavedConfig.CrateMinCashText or "5B", function(text)
     if text and text ~= "" then
         local parsedVal = parseCashString(text)
@@ -937,7 +1157,7 @@ AutomatorTab:AddInputField("Min Cash To Buy", SavedConfig.CrateMinCashText or "5
 end)
 
 AutomatorTab:AddToggle({
-    Text = "Auto Playtime",
+    Text = "Auto Playtime Rewards",
     Default = SavedConfig.AutoPlaytime,
     OnText = "Auto Playtime: ON",
     OffText = "Auto Playtime: OFF",
@@ -952,10 +1172,10 @@ AutomatorTab:AddToggle({
 -- UTILITY HOOKS
 -- ==========================================
 AutomatorTab:AddDivider()
-AutomatorTab:AddLabel("UTILITY HOOKS")
+AutomatorTab:AddSectionHeader("Utility Handlers")
 
 AutomatorTab:AddButton({
-    Text = "Reset All Saved Trackers to 0",
+    Text = "Reset Cached Counters to 0",
     DotColor = DEFAULT_THEME.warning,
     Callback = function(btn)
         SavedConfig.ReconnectCount = 0
@@ -968,26 +1188,24 @@ AutomatorTab:AddButton({
         incomeCard:Update("$0 / hr")
         sessionCard:Update("00h 00m 00s")
         
-        btn:SetState("success", "Reset Completed!")
-        task.wait(1.5)
-        btn:SetState("reset")
+        createToast("Session database cache cleared successfully", "success")
     end
 })
 
 AutomatorTab:AddButton({
-    Text = "Test Discord Webhook Now",
+    Text = "Force Test Discord Webhook",
     DotColor = DEFAULT_THEME.accent,
     Callback = function(btn)
         btn:SetState("loading", "Sending Post...")
         local ok, err = postWebhookUpdate(true)
         if ok then
-            btn:SetState("success", "Sent! Check Discord")
+            btn:SetState("reset")
+            createToast("Discord payload synchronized successfully!", "success")
         else
-            btn:SetState("reset", "Failed: Check Code URL")
+            btn:SetState("reset")
+            createToast("Failed: Webhook delivery failure.", "danger")
             warn("Webhook execution error details: ", tostring(err))
         end
-        task.wait(2)
-        btn:SetState("reset")
     end
 })
 
@@ -997,24 +1215,25 @@ AutomatorTab:AddButton({
     Callback = function(btn)
         btn:SetState("loading", "Executing...")
         local success, err = pcall(function()
-            loadstring(game:HttpGet(('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source'), true))()
+            local content = game:HttpGet('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source', true)
+            loadstring(content)()
         end)
         if success then
-            btn:SetState("success", "Launched!")
-            task.wait(1)
             btn:SetState("reset")
+            createToast("Infinite Yield injected into environment.", "success")
         else
-            btn:SetState("reset", "Execution Failed")
+            btn:SetState("reset")
+            createToast("Execution failure on payload hook.", "danger")
             warn("Failed to load Infinite Yield: " .. tostring(err))
         end
     end
 })
 
 AutomatorTab:AddButton({
-    Text = "Unload UI Script",
+    Text = "Unload UI Interface Script",
     DotColor = DEFAULT_THEME.danger,
     Callback = function(btn)
-        btn:SetState("loading", "Terminating...")
+        createToast("Deconstructing operational pipelines...", "warning")
         running = false
         collectingActive = false
         buyActive = false
@@ -1030,6 +1249,7 @@ AutomatorTab:AddButton({
 -- BACKGROUND AUTOMATION ENGINE THREADS
 -- ==========================================
 
+-- REALLY FAST PACED COLLECTOR (NON-INSTANT)
 task.spawn(function()
     local Shared = ReplicatedStorage:WaitForChild("Shared", 5)
     local Resources = Shared and Shared:WaitForChild("Resources", 5)
@@ -1050,17 +1270,16 @@ task.spawn(function()
                 if not collectingActive then break end
                 if tower:IsA("Instance") then
                     Event:FireServer(tower)
-                    delayTimer(0.2)
+                    task.wait(0.01)
                 end
             end
-            delayTimer(1)
+            delayTimer(0.2)
         else
             delayTimer(0.5)
         end
     end
 end)
 
--- MAX SPEED INDEPENDENT VENDOR SHOP LOOPS
 task.spawn(function()
     local PurchaseEvent = ReplicatedStorage:WaitForChild("Shared")
         :WaitForChild("Resources"):WaitForChild("VendorResources")
