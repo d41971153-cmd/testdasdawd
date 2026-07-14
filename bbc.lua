@@ -1,5 +1,5 @@
 -- ==========================================
--- EMBEDDED GUI FRAMEWORK v1.4 (Ultimate Premium Edition)
+-- EMBEDDED GUI FRAMEWORK v1.5 (Ultimate Premium Optimization Edition)
 -- ==========================================
 local Framework = {}
 Framework.__index = Framework
@@ -11,6 +11,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService = game:GetService("TeleportService")
 local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
 local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 
@@ -116,7 +117,8 @@ local SavedConfig = {
     CrateMinCashText = "5B",
     ReconnectCount = 0,
     TotalSessionEarned = 0,
-    TotalSessionTime = 0
+    TotalSessionTime = 0,
+    CpuSaverActive = false
 }
 
 local function loadSettings()
@@ -307,7 +309,6 @@ function Framework:CreateWindow(config)
     titleLabel.TextSize = 13
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 
-    -- Clean minimizing system implementation
     local isMinimised = false
     local minBtn = Instance.new("TextButton")
     minBtn.Name = "Minimize"
@@ -439,7 +440,6 @@ function Framework:CreateWindow(config)
         canvasGroup.GroupTransparency = 1
         canvasGroup.Visible = false
 
-        -- Integrated filter mechanism header area
         local searchOffset = 0
         local searchBox = nil
         if hasSearch then
@@ -498,7 +498,6 @@ function Framework:CreateWindow(config)
         Tab._theme = theme
         Tab._elements = {}
 
-        -- Live search matching processor
         if searchBox then
             searchBox:GetPropertyChangedSignal("Text"):Connect(function()
                 local query = searchBox.Text:lower()
@@ -616,7 +615,6 @@ function Framework:CreateWindow(config)
 
             if state then updateVisual() end
 
-            -- Interactivity glow implementation
             btn.MouseEnter:Connect(function()
                 tween(btnStroke, {Color = theme.borderActive})
                 if not state then tween(btn, {BackgroundColor3 = theme.surfaceHover}) end
@@ -858,6 +856,7 @@ local buyActive         = SavedConfig.AutoBuy
 local dismantleActive   = SavedConfig.AutoDismantle
 local crateActive      = SavedConfig.AutoCrate
 local rewardActive     = SavedConfig.AutoPlaytime
+local cpuSaverActive   = SavedConfig.CpuSaverActive
 
 local Window = Framework:CreateWindow({
     Title = "Automator Controller",
@@ -870,6 +869,11 @@ task.spawn(function()
     delayTimer(1)
     syncTenCrateState()
 end)
+
+-- Initialize rendering status safely based on loaded state
+if cpuSaverActive then
+    RunService:Set3dRenderingEnabled(false)
+end
 
 -- ==========================================
 -- ANTI-AFK IMMUNITY HOOK
@@ -951,6 +955,9 @@ task.spawn(function()
         SavedConfig.ReconnectCount = (SavedConfig.ReconnectCount or 0) + 1
         saveSettings()
         reconnectCard:Update(tostring(SavedConfig.ReconnectCount))
+        
+        -- Safely fallback rendering to normal if disconnected so the reconnect screen updates cleanly
+        RunService:Set3dRenderingEnabled(true)
         
         delayTimer(5)
         
@@ -1169,6 +1176,33 @@ AutomatorTab:AddToggle({
 })
 
 -- ==========================================
+-- OPTIMIZATION & RESOURCE MANAGEMENT CONTROLS
+-- ==========================================
+AutomatorTab:AddDivider()
+AutomatorTab:AddSectionHeader("Performance Configuration")
+
+AutomatorTab:AddToggle({
+    Text = "Auto-Optimize Performance",
+    Default = SavedConfig.CpuSaverActive,
+    OnText = "GPU Saver: MAXIMUM ENABLED",
+    OffText = "GPU Saver: DISABLED",
+    Callback = function(state)
+        cpuSaverActive = state
+        SavedConfig.CpuSaverActive = state
+        saveSettings()
+        
+        -- Safely lock or release 3D Rendering engine on hardware thread
+        RunService:Set3dRenderingEnabled(not state)
+        
+        if state then
+            createToast("3D World Rendering Disabled! GPU usage optimized.", "warning")
+        else
+            createToast("3D World Rendering Restored to default.", "success")
+        end
+    end
+})
+
+-- ==========================================
 -- UTILITY HOOKS
 -- ==========================================
 AutomatorTab:AddDivider()
@@ -1240,6 +1274,10 @@ AutomatorTab:AddButton({
         dismantleActive = false
         crateActive = false
         rewardActive = false
+        
+        -- Safe absolute fallback recovery to guarantee interface isn't locked on removal
+        RunService:Set3dRenderingEnabled(true)
+        
         task.wait(0.4)
         Window._screenGui:Destroy()
     end
