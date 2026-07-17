@@ -30,8 +30,8 @@ local Camera = Workspace.CurrentCamera
 -- Whitelist for Controller / Masters (Manual entries here bypass bot logic)
 local Whitelist = {
     ["wolfking321"] = true, 
-    ["nonvertwo"] = true
-    ["max500039alt1"] = true
+    ["nonvertwo"] = true,
+    ["max500039alt1"] = true,
 }
 local IsMaster = Whitelist[LocalPlayer.Name:lower()] ~= nil
 
