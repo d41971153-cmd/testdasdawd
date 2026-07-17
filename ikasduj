@@ -31,6 +31,7 @@ local Camera = Workspace.CurrentCamera
 local Whitelist = {
     ["wolfking321"] = true, 
     ["nonvertwo"] = true
+    ["max500039alt1"] = true
 }
 local IsMaster = Whitelist[LocalPlayer.Name:lower()] ~= nil
 
