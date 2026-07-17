@@ -16,6 +16,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local UserInputService = game:GetService("UserInputService")
@@ -51,6 +52,12 @@ local M1FrequencyGlobal = 0.22
 local InfiniteWindowGlobal = 1.4
 local CurrentTargetGlobal = ""
 local ChatSpamActiveGlobal = false
+local GSpamActiveGlobal = false
+-- HideAlts feature removed
+local SussyOverdriveActiveGlobal = false
+local NoRenderActiveGlobal = false
+local LastEmoteToken = ""
+local DebugVerboseGlobal = false
 
 -- Spectator Configuration States
 local TabListSpectatorEnabled = false
@@ -93,6 +100,102 @@ local function PlayLocalWarningNoise(audioPath)
         sound:Play()
         sound:Destroy()
     end)
+end
+
+local function triggerFlexEmote()
+    local emoteRemote = ReplicatedStorage:FindFirstChild("Emote")
+    if emoteRemote and emoteRemote:IsA("RemoteEvent") then
+        pcall(function()
+            emoteRemote:FireServer("Flex")
+        end)
+    end
+end
+
+local function spamGAbility()
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.G, false, game)
+        task.wait(0.04)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.G, false, game)
+    end)
+end
+
+-- Alt rendering blackout removed (setAltVisibility and AltPartStateStore deleted)
+
+local function clearBlacklistState(preserveWhitelist)
+    local preserve = preserveWhitelist ~= false
+    local blacklistTerms = {"blacklist", "ignore", "ignored", "blocked", "targetblock"}
+    local containers = {ReplicatedStorage, Workspace, LocalPlayer, LocalPlayer:FindFirstChild("PlayerGui")}
+
+    local function nameContainsWhitelist(text)
+        if not text then return false end
+        local lower = string.lower(tostring(text))
+        for w, _ in pairs(Whitelist) do
+            if lower:find(w, 1, true) then
+                return true
+            end
+        end
+        return false
+    end
+
+    for _, container in ipairs(containers) do
+        if container then
+            for _, obj in ipairs(container:GetDescendants()) do
+                local name = string.lower(obj.Name or "")
+                local shouldRemove = false
+                for _, term in ipairs(blacklistTerms) do
+                    if string.find(name, term, 1, true) then
+                        shouldRemove = true
+                        break
+                    end
+                end
+
+                if shouldRemove and preserve then
+                    -- preserve any blacklist artifacts that reference or protect whitelisted masters
+                    if nameContainsWhitelist(obj.Name) then
+                        shouldRemove = false
+                    else
+                        local ok, val = pcall(function() return obj.Value end)
+                        if ok and type(val) == "string" and nameContainsWhitelist(val) then
+                            shouldRemove = false
+                        end
+                    end
+                end
+
+                if shouldRemove and (obj:IsA("Folder") or obj:IsA("StringValue") or obj:IsA("IntValue") or obj:IsA("BoolValue") or obj:IsA("ObjectValue")) then
+                    pcall(function()
+                        obj:Destroy()
+                    end)
+                end
+            end
+        end
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local blacklistFolder = player:FindFirstChild("Blacklist") or player:FindFirstChild("blacklist")
+                if blacklistFolder then
+                local shouldDestroy = true
+                for _, child in ipairs(blacklistFolder:GetDescendants()) do
+                    if preserve and nameContainsWhitelist(child.Name) then
+                        shouldDestroy = false
+                        break
+                    end
+                    if child:IsA("StringValue") then
+                        local ok, v = pcall(function() return child.Value end)
+                        if ok and type(v) == "string" and preserve and nameContainsWhitelist(v) then
+                            shouldDestroy = false
+                            break
+                        end
+                    end
+                end
+                if shouldDestroy then
+                    pcall(function()
+                        blacklistFolder:Destroy()
+                    end)
+                end
+            end
+        end
+    end
 end
 
 -- Check logic to determine if a specific profile matches criteria
@@ -358,6 +461,14 @@ local mainSuccess, mainError = pcall(function()
     -- --- MOVEMENT ENGINES ---
     local function StopAllActions()
         if AttachConnection then AttachConnection:Disconnect(); AttachConnection = nil end
+        if WaypointLoop then
+            WaypointLoop = nil
+            WaypointActive = false
+        end
+        if FormationConnLocal then
+            FormationConnLocal:Disconnect(); FormationConnLocal = nil
+            FormationActive = false
+        end
         pcall(function()
             Camera.CameraType = Enum.CameraType.Custom
             if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
@@ -462,6 +573,19 @@ local mainSuccess, mainError = pcall(function()
         local lastRadius = 6
         local lastForcedChar = ""
         
+        -- Bot-side fun follow state
+        local WaypointsProfileLocal = ""
+        local WaypointsListLocal = {}
+        local WaypointActive = false
+        local WaypointLoop = nil
+        local WaypointSpeedValue = 20
+        local WaypointPauseValue = 0.08
+
+        local FormationProfileLocal = ""
+        local FormationPointsLocal = {}
+        local FormationActive = false
+        local FormationConnLocal = nil
+
         local CachedInputRemote = nil
 
         local function GetHiddenInputRemote()
@@ -489,6 +613,170 @@ local mainSuccess, mainError = pcall(function()
             CachedInputRemote = nil
         end)
 
+        -- Load waypoint profile file into local Vector3 list
+        local function LoadLocalWaypoints(profileName)
+            if not profileName or profileName == '' then return {} end
+            local ok, raw = pcall(function() return readfile('aba_waypoints_'..tostring(profileName)..'.json') end)
+            if not ok or not raw then return {} end
+            local ok2, parsed = pcall(function() return HttpService:JSONDecode(raw) end)
+            if not ok2 or not parsed or type(parsed.Waypoints) ~= 'table' then return {} end
+            local out = {}
+            for _, v in ipairs(parsed.Waypoints) do
+                if type(v) == 'table' and v.x and v.y and v.z then
+                    table.insert(out, Vector3.new(v.x, v.y, v.z))
+                end
+            end
+            return out
+        end
+
+        local function StartWaypointsEngine(profileName)
+            if IsMaster then return end
+            WaypointsListLocal = LoadLocalWaypoints(profileName)
+            if #WaypointsListLocal == 0 then return end
+            StopAllActions()
+            WaypointActive = true
+            local idx = 1
+            local moveSpeed = WaypointSpeedValue -- studs/s used to compute tween time
+            local arrivalThreshold = 1.0
+            -- helper to disable collisions and enable flight-like control
+            local function enableFlightNoClip(enable)
+                if not LocalPlayer.Character then return end
+                local humanoid = LocalPlayer.Character:FindFirstChildOfClass('Humanoid')
+                for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                    if part:IsA('BasePart') then
+                        pcall(function() part.CanCollide = not enable end)
+                    end
+                end
+                if humanoid then
+                    pcall(function() humanoid.PlatformStand = enable end)
+                end
+            end
+
+            -- main waypoint runner using BodyVelocity for ESC-style flight
+            task.spawn(function()
+                while WaypointActive and Running do
+                    local dest = WaypointsListLocal[idx]
+                    if not dest then break end
+                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+                        local hrp = LocalPlayer.Character.HumanoidRootPart
+                        -- enable noclip/flight state for smooth motion
+                        enableFlightNoClip(true)
+
+                        -- create or reuse BodyVelocity
+                        local bv = hrp:FindFirstChild('DWFlightBV')
+                        if not bv then
+                            bv = Instance.new('BodyVelocity')
+                            bv.Name = 'DWFlightBV'
+                            bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+                            bv.P = 1250
+                            bv.Parent = hrp
+                        end
+
+                        local arrived = false
+                        local timer = 0
+                        while WaypointActive and Running and hrp and hrp.Parent and not arrived and timer < 60 do
+                            local curPos = hrp.Position
+                            local toDest = dest - curPos
+                            local dist = toDest.Magnitude
+                            if dist <= 1.0 then arrived = true; break end
+                            local desired = toDest.Unit * math.min(moveSpeed, dist * 1.2)
+                            -- gentle vertical damping to reduce twitch
+                            desired = Vector3.new(desired.X, toDest.Y * 0.7, desired.Z)
+                            -- smooth velocity lerp
+                            local currentV = bv.Velocity or Vector3.new(0,0,0)
+                            local newV = currentV:Lerp(desired, 0.25)
+                            pcall(function() bv.Velocity = newV end)
+                            task.wait(0.04)
+                            timer = timer + 0.04
+                        end
+
+                        -- cleanup BV at arrival
+                        pcall(function()
+                            if bv and bv.Parent then bv:Destroy() end
+                        end)
+
+                        -- small pause at waypoint
+                        task.wait(WaypointPauseValue)
+                    else
+                        task.wait(0.2)
+                    end
+
+                    idx = idx + 1
+                    if idx > #WaypointsListLocal then idx = 1 end
+                end
+                enableFlightNoClip(false)
+                WaypointActive = false
+            end)
+        end
+
+        local function StopWaypointsEngine()
+            WaypointActive = false
+            WaypointsListLocal = {}
+            -- ensure collisions restored and remove any lingering BV
+            if LocalPlayer and LocalPlayer.Character then
+                for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                    if part:IsA('BasePart') then pcall(function() part.CanCollide = true end) end
+                end
+                local humanoid = LocalPlayer.Character:FindFirstChildOfClass('Humanoid')
+                if humanoid then pcall(function() humanoid.PlatformStand = false end) end
+                local hrp = LocalPlayer.Character:FindFirstChild('HumanoidRootPart')
+                if hrp then
+                    local bv = hrp:FindFirstChild('DWFlightBV')
+                    if bv then pcall(function() bv:Destroy() end) end
+                end
+            end
+            if WaypointLoop and type(WaypointLoop) == 'table' and WaypointLoop.Disconnect then
+                pcall(function() WaypointLoop:Disconnect() end)
+            end
+            WaypointLoop = nil
+        end
+
+        -- Formation loader
+        local function LoadLocalFormation(profileName)
+            if not profileName or profileName == '' then return {} end
+            local ok, raw = pcall(function() return readfile('aba_formation_'..tostring(profileName)..'.json') end)
+            if not ok or not raw then return {} end
+            local ok2, parsed = pcall(function() return HttpService:JSONDecode(raw) end)
+            if not ok2 or not parsed or type(parsed.Points) ~= 'table' then return {} end
+            local out = {}
+            for _, v in ipairs(parsed.Points) do
+                if type(v) == 'table' and v.x and v.y and v.z then
+                    table.insert(out, Vector3.new(v.x, v.y, v.z))
+                end
+            end
+            return out
+        end
+
+        local function StartFormationEngine(profileName)
+            if IsMaster then return end
+            FormationPointsLocal = LoadLocalFormation(profileName)
+            if #FormationPointsLocal == 0 then return end
+            StopAllActions()
+            FormationActive = true
+            FormationConnLocal = RunService.RenderStepped:Connect(function()
+                if not FormationActive then return end
+                local target = Players:FindFirstChild(CurrentTargetGlobal)
+                if not target or not target.Character or not target.Character:FindFirstChild('HumanoidRootPart') then return end
+                if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then return end
+                local base = target.Character.HumanoidRootPart.Position
+                local idx = 1
+                if #FormationPointsLocal > 0 then
+                    idx = ((BotIndexGlobal - 1) % #FormationPointsLocal) + 1
+                end
+                local off = FormationPointsLocal[idx]
+                if off then
+                    local worldPos = base + off
+                    LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(worldPos, base)
+                end
+            end)
+        end
+
+        local function StopFormationEngine()
+            FormationActive = false
+            FormationPointsLocal = {}
+            if FormationConnLocal then FormationConnLocal:Disconnect(); FormationConnLocal = nil end
+        end
+
         -- Command Listener Loop
         task.spawn(function()
             while Running do
@@ -503,6 +791,7 @@ local mainSuccess, mainError = pcall(function()
                 InfiniteWindowGlobal = data.InfiniteWindow or 1.4
                 CurrentTargetGlobal = data.Target or ""
                 ChatSpamActiveGlobal = data.ChatSpam or false
+                GSpamActiveGlobal = data.GSpam or false
         
                 if data.ModDetector then
                     ModDetectorEnabled = data.ModDetector.Enabled or false
@@ -515,6 +804,79 @@ local mainSuccess, mainError = pcall(function()
                     if data.ModDetector.CustomList then
                         CustomModList = data.ModDetector.CustomList
                     end
+                end
+
+                -- Handle SussyOverdrive flag from master: force-clear local blacklists when enabled
+                if data.SussyOverdrive then
+                    if not SussyOverdriveActiveGlobal then
+                        pcall(function() clearBlacklistState(false) end)
+                        SussyOverdriveActiveGlobal = true
+                    end
+                else
+                    if SussyOverdriveActiveGlobal then
+                        SussyOverdriveActiveGlobal = false
+                    end
+                end
+
+                -- Handle Emote command dispatched by master (tokenized so all alts run it)
+                if data.Emote and type(data.Emote) == "table" and data.Emote.Token and data.Emote.Token ~= LastEmoteToken then
+                    local emoteRemote = ReplicatedStorage:FindFirstChild("Emote")
+                    if emoteRemote and emoteRemote:IsA("RemoteEvent") and data.Emote.Type then
+                        pcall(function()
+                            emoteRemote:FireServer(data.Emote.Type)
+                        end)
+                    end
+                    LastEmoteToken = data.Emote.Token
+                end
+
+                -- Handle NoRender (disable client 3D rendering) command
+                if data.NoRender then
+                    if not NoRenderActiveGlobal then
+                        pcall(function()
+                            if RunService and RunService.Set3dRenderingEnabled then
+                                RunService:Set3dRenderingEnabled(false)
+                            elseif RunService and RunService.Set3DRenderingEnabled then
+                                RunService:Set3DRenderingEnabled(false)
+                            end
+                        end)
+                        NoRenderActiveGlobal = true
+                    end
+                else
+                    if NoRenderActiveGlobal then
+                        pcall(function()
+                            if RunService and RunService.Set3dRenderingEnabled then
+                                RunService:Set3dRenderingEnabled(true)
+                            elseif RunService and RunService.Set3DRenderingEnabled then
+                                RunService:Set3DRenderingEnabled(true)
+                            end
+                        end)
+                        NoRenderActiveGlobal = false
+                    end
+                end
+
+                -- Handle Waypoints/Formation follow commands from master
+                local wpProfile = data.WaypointsProfile or ''
+                local wpFollow = data.WaypointsFollow or false
+                if wpFollow and wpProfile ~= '' then
+                    if wpProfile ~= WaypointsProfileLocal then
+                        WaypointsProfileLocal = wpProfile
+                        StartWaypointsEngine(wpProfile)
+                    end
+                else
+                    if WaypointActive then StopWaypointsEngine() end
+                    WaypointsProfileLocal = ''
+                end
+
+                local fProfile = data.FormationProfile or ''
+                local fFollow = data.FormationFollow or false
+                if fFollow and fProfile ~= '' then
+                    if fProfile ~= FormationProfileLocal then
+                        FormationProfileLocal = fProfile
+                        StartFormationEngine(fProfile)
+                    end
+                else
+                    if FormationActive then StopFormationEngine() end
+                    FormationProfileLocal = ''
                 end
 
                 local botList = {}
@@ -571,11 +933,11 @@ local mainSuccess, mainError = pcall(function()
                     lastSpeed = data.OrbitSpeed
                     lastRadius = data.OrbitRadius
                     
-                    if lastCommand == "ATTACH" and lastTarget ~= "" then
+                    if lastCommand == "ATTACH" and lastTarget ~= "" and not table.find(botList, lastTarget) then
                         AttachToPlayer()
-                    elseif lastCommand == "TWEEN" and lastTarget ~= "" then
+                    elseif lastCommand == "TWEEN" and lastTarget ~= "" and not table.find(botList, lastTarget) then
                         TweenToPlayer()
-                    elseif lastCommand == "ORBIT" and lastTarget ~= "" then
+                    elseif lastCommand == "ORBIT" and lastTarget ~= "" and not table.find(botList, lastTarget) then
                         StartOrbitEngine(lastSpeed, lastRadius)
                     elseif lastCommand == "JOIN_SERVER" then
                         StopAllActions()
@@ -707,6 +1069,10 @@ local mainSuccess, mainError = pcall(function()
                                 end)
                             end
                         end
+
+                        if GSpamActiveGlobal then
+                            spamGAbility()
+                        end
                     end
                 end
             
@@ -759,11 +1125,14 @@ local mainSuccess, mainError = pcall(function()
             MenuFadeTime = 0.2
         })
 
-        local Tabs = {
-            Main = Window:AddTab('Bot Management'),
-            Staff = Window:AddTab('Staff Detector'),
-            Settings = Window:AddTab('Settings')
-        }
+                local Tabs = {
+                    Main = Window:AddTab('Bot Management'),
+                    Staff = Window:AddTab('Staff Detector'),
+                    Settings = Window:AddTab('Settings'),
+                    Debug = Window:AddTab('Debug')
+                    ,
+                    Fun = Window:AddTab('Fun Stuff')
+                }
 
         local LeftGroupBox = Tabs.Main:AddLeftGroupbox('Targeting Control')
         local ActionGroupBox = Tabs.Main:AddLeftGroupbox('Swarm Ability Usage')
@@ -776,6 +1145,34 @@ local mainSuccess, mainError = pcall(function()
         local SelectedPlayer = ""
         local PlayerDropdown = nil
         local Toggles = {}
+
+        -- Fun Stuff globals: waypoints, macros, formations
+        local Waypoints = {}
+        local WaypointDrawEnabled = false
+        local WaypointMarkers = {}
+        local WaypointLines = {}
+        local WaypointProfileName = ""
+        local WaypointSpeedValue = 20
+        local WaypointPauseValue = 0.08
+
+        local Macros = {}
+        local CurrentMacro = {}
+        local RecordingMacro = false
+        local MacroStartTime = 0
+        local MacroInputConnB = nil
+        local MacroInputConnE = nil
+
+        local Formations = {}
+        local CurrentFormation = {}
+        local FormationDrawEnabled = false
+        local FormationMarkers = {}
+        local FormationProfileName = ""
+
+        local FunConnection = nil
+        local MetricsEnabled = false
+        local MetricsText = nil
+        local lastFrameTime = tick()
+        local fpsSmoothed = 60
 
         local function IsPlayerAnActiveBot(playerName)
             local data = GetClusterData()
@@ -791,9 +1188,15 @@ local mainSuccess, mainError = pcall(function()
         local function GetPlayerList()
             local list = {}
             for _, p in pairs(Players:GetPlayers()) do
-                if p ~= LocalPlayer and not Whitelist[p.Name:lower()] and not IsPlayerAnActiveBot(p.Name) then 
-                    table.insert(list, p.Name) 
-               end
+                local allow = true
+                if not SussyOverdriveActiveGlobal then
+                    if p == LocalPlayer or Whitelist[p.Name:lower()] then
+                        allow = false
+                    end
+                end
+                if allow and not IsPlayerAnActiveBot(p.Name) then
+                    table.insert(list, p.Name)
+                end
             end
             return list
         end
@@ -835,13 +1238,585 @@ local mainSuccess, mainError = pcall(function()
             end
         end)
 
+        -- Drawing-based target label shown above the currently selected player (master-only)
+        local TargetMarker = Drawing.new("Text")
+        TargetMarker.Center = true
+        TargetMarker.Outline = true
+        TargetMarker.Size = 20
+        TargetMarker.Color = Color3.fromRGB(255, 0, 0)
+        TargetMarker.Visible = false
+
+        local TargetConnection = RunService.RenderStepped:Connect(function()
+            if not Running then
+                TargetMarker.Visible = false
+                return
+            end
+
+            if SelectedPlayer and SelectedPlayer ~= "" then
+                local ply = Players:FindFirstChild(SelectedPlayer)
+                if ply and ply.Character and ply.Character:FindFirstChild("HumanoidRootPart") then
+                    local pos = ply.Character.HumanoidRootPart.Position + Vector3.new(0, 3, 0)
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(pos)
+                    if onScreen then
+                        TargetMarker.Position = Vector2.new(screenPos.X, screenPos.Y)
+                        TargetMarker.Text = "TARGET"
+                        TargetMarker.Visible = true
+                    else
+                        TargetMarker.Visible = false
+                    end
+                else
+                    TargetMarker.Visible = false
+                end
+            else
+                TargetMarker.Visible = false
+            end
+        end)
+
+        -- Fun Stuff UI and helpers (Waypoints / Macro Recorder / Formations)
+        local FunLeftBox = Tabs.Fun:AddLeftGroupbox('Waypoints')
+        local FunRightBox = Tabs.Fun:AddRightGroupbox('Macro & Formation')
+
+        local function clearWaypointDrawings()
+            for _, d in pairs(WaypointMarkers) do pcall(function() d:Remove() end) end
+            for _, l in pairs(WaypointLines) do pcall(function() l:Remove() end) end
+            WaypointMarkers = {}
+            WaypointLines = {}
+        end
+
+        local function drawWaypoints()
+            clearWaypointDrawings()
+            if not WaypointDrawEnabled then return end
+            for i, pos in ipairs(Waypoints) do
+                local circle = Drawing.new('Circle')
+                circle.Radius = 6
+                circle.Filled = true
+                circle.Color = Color3.fromRGB(0, 200, 255)
+                circle.Visible = false
+                table.insert(WaypointMarkers, circle)
+            end
+            for i=1, math.max(0, #Waypoints-1) do
+                local ln = Drawing.new('Line')
+                ln.Color = Color3.fromRGB(0,200,255)
+                ln.Thickness = 2
+                ln.Visible = false
+                table.insert(WaypointLines, ln)
+            end
+        end
+
+        local function SaveWaypointsProfile(name)
+            if not name then name = '' end
+            name = tostring(name):gsub('^%s+', ''):gsub('%s+$','')
+            if name == '' then Library:Notify('[Fun] Enter a valid waypoint profile name', 2); return end
+            -- sanitize filename
+            local safeName = name:gsub('[^%w%-%_]', '_')
+            local serial = { Waypoints = {} }
+            for _, v in ipairs(Waypoints) do table.insert(serial.Waypoints, {x = v.X, y = v.Y, z = v.Z}) end
+            local ok = false
+            local ok, err = pcall(function() writefile('aba_waypoints_'..safeName..'.json', HttpService:JSONEncode(serial)) end)
+            if not ok then Library:Notify('[Fun] Failed to write waypoint file: '..tostring(err), 4); return end
+            -- update index
+            local ok2, err2 = pcall(function()
+                local idx = {}
+                local okr, raw = pcall(function() return readfile('aba_waypoints_index.json') end)
+                if okr and raw then
+                    local parsed = HttpService:JSONDecode(raw)
+                    if type(parsed) == 'table' then idx = parsed end
+                end
+                if not table.find(idx, safeName) then table.insert(idx, safeName) end
+                writefile('aba_waypoints_index.json', HttpService:JSONEncode(idx))
+            end)
+            if not ok2 then Library:Notify('[Fun] Failed to update waypoint index: '..tostring(err2), 4) end
+            local dd = Library.Options and Library.Options.WaypointProfilesDropdown
+            if dd then dd:SetValues(GetWaypointProfiles()) end
+            Library:Notify('[Fun] Waypoints saved: ' .. name, 2)
+        end
+
+        local function GetWaypointProfiles()
+            local out = {}
+            local ok, raw = pcall(function() return readfile('aba_waypoints_index.json') end)
+            if ok and raw then
+                local parsed = HttpService:JSONDecode(raw)
+                if type(parsed) == 'table' then out = parsed end
+            end
+            return out
+        end
+
+        local function SanitizeProfileName(name)
+            if not name then return '' end
+            name = tostring(name):gsub('^%s+', ''):gsub('%s+$','')
+            name = name:gsub('[^%w%-%_]', '_')
+            return name
+        end
+
+        local function LoadWaypointsProfile(name)
+            if not name or name == '' then return end
+            local ok, content = pcall(function() return readfile('aba_waypoints_'..name..'.json') end)
+            if ok and content then
+                local data = HttpService:JSONDecode(content)
+                Waypoints = {}
+                for _, v in ipairs(data.Waypoints or {}) do table.insert(Waypoints, Vector3.new(v.x, v.y, v.z)) end
+                drawWaypoints()
+                Library:Notify('[Fun] Waypoints loaded: ' .. name, 2)
+            else
+                Library:Notify('[Fun] Failed to load waypoints: ' .. name, 2)
+            end
+        end
+
+        FunLeftBox:AddButton({ Text = 'Add Waypoint (from HRP)', Func = function()
+            pcall(function()
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+                    table.insert(Waypoints, LocalPlayer.Character.HumanoidRootPart.Position)
+                    drawWaypoints()
+                    Library:Notify('[Fun] Waypoint added (HRP)', 1.5)
+                end
+            end)
+        end })
+
+        FunLeftBox:AddButton({ Text = 'Add Waypoint (camera target)', Func = function()
+            pcall(function()
+                local ray = Camera:ScreenPointToRay(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y)
+                local params = RaycastParams.new(); params.FilterDescendantsInstances = {LocalPlayer.Character}; params.FilterType = Enum.RaycastFilterType.Blacklist
+                local hit = Workspace:Raycast(ray.Origin, ray.Direction * 500, params)
+                if hit and hit.Position then
+                    table.insert(Waypoints, hit.Position)
+                    drawWaypoints()
+                    Library:Notify('[Fun] Waypoint added (cursor)', 1.5)
+                end
+            end)
+        end })
+
+        FunLeftBox:AddToggle('DrawWaypointsToggle', { Text = 'Draw Waypoints', Default = false, Callback = function(State)
+            WaypointDrawEnabled = State
+            if State then drawWaypoints() else clearWaypointDrawings() end
+        end })
+
+        local WaypointProfileNameInputObj = FunLeftBox:AddInput('WaypointProfileNameInput', { Text = 'Waypoint Profile Name', Default = '', Finished = false })
+        local WaypointProfilesDropdownObj = nil
+        FunLeftBox:AddButton({ Text = 'Save Waypoints', Func = function()
+            local name = (WaypointProfileNameInputObj and WaypointProfileNameInputObj.Value) or ''
+            SaveWaypointsProfile(name)
+            -- refresh dropdown
+            if WaypointProfilesDropdownObj then WaypointProfilesDropdownObj:SetValues(GetWaypointProfiles()) end
+        end })
+
+        WaypointProfilesDropdownObj = FunLeftBox:AddDropdown('WaypointProfilesDropdown', {
+            Values = GetWaypointProfiles(),
+            Default = 1,
+            Multi = false,
+            Text = 'Waypoint Profiles',
+            Tooltip = 'Saved waypoint profiles',
+            Callback = function(Value)
+                if Value and Value ~= '' then LoadWaypointsProfile(Value) end
+            end
+        })
+
+        FunLeftBox:AddSlider('WaypointSpeedSlider', {
+            Text = 'Waypoint Travel Speed',
+            Default = WaypointSpeedValue,
+            Min = 5,
+            Max = 80,
+            Rounding = 0,
+            Compact = false,
+            Callback = function(Value)
+                WaypointSpeedValue = Value
+            end
+        })
+
+        FunLeftBox:AddSlider('WaypointPauseSlider', {
+            Text = 'Waypoint Pause Duration',
+            Default = WaypointPauseValue,
+            Min = 1,
+            Max = 2,
+            Rounding = 2,
+            Compact = false,
+            Callback = function(Value)
+                WaypointPauseValue = Value
+            end
+        })
+
+        FunLeftBox:AddButton({ Text = 'Refresh Waypoint List', Func = function()
+            if WaypointProfilesDropdownObj and type(WaypointProfilesDropdownObj.SetValues) == 'function' then WaypointProfilesDropdownObj:SetValues(GetWaypointProfiles()) end
+            Library:Notify('[Fun] Waypoint list refreshed', 1.2)
+        end })
+
+        FunLeftBox:AddButton({ Text = 'Delete Selected Waypoint Profile', Func = function()
+            local sel = WaypointProfilesDropdownObj and WaypointProfilesDropdownObj.Value or ''
+            if sel == '' then Library:Notify('[Fun] No profile selected', 2); return end
+            local ok, err = pcall(function()
+                -- remove profile file
+                if delfile then pcall(function() delfile('aba_waypoints_'..sel..'.json') end) end
+                -- update index
+                local idx = {}
+                local okr, raw = pcall(function() return readfile('aba_waypoints_index.json') end)
+                if okr and raw then local parsed = HttpService:JSONDecode(raw); if type(parsed)=='table' then idx=parsed end end
+                for i,v in ipairs(idx) do if v==sel then table.remove(idx,i); break end end
+                pcall(function() writefile('aba_waypoints_index.json', HttpService:JSONEncode(idx)) end)
+            end)
+            if not ok then Library:Notify('[Fun] Failed to delete waypoint profile: '..tostring(err), 4) else
+                if WaypointProfilesDropdownObj and type(WaypointProfilesDropdownObj.SetValues) == 'function' then WaypointProfilesDropdownObj:SetValues(GetWaypointProfiles()) end
+                Library:Notify('[Fun] Waypoint profile deleted: '..sel, 2)
+            end
+        end })
+
+        FunLeftBox:AddToggle('BotsFollowWaypointsToggle', { Text = 'Bots Follow Loaded Waypoints', Default = false, Callback = function(State)
+            local sel = WaypointProfilesDropdownObj and WaypointProfilesDropdownObj.Value or ''
+            local data = GetClusterData()
+            data.WaypointsProfile = State and sel or ''
+            data.WaypointsFollow = State
+            SaveClusterData(data)
+            Library:Notify('[Fun] Bots follow waypoints = '..tostring(State), 1.5)
+        end })
+
+        FunLeftBox:AddButton({ Text = 'Clear Waypoints', Func = function() Waypoints = {}; clearWaypointDrawings(); Library:Notify('[Fun] Waypoints cleared', 1.5) end })
+
+        -- Macro recorder (main account only)
+        FunRightBox:AddToggle('MacroRecordToggle', { Text = 'Record Macro (Main only)', Default = false, Callback = function(State)
+            if State then
+                if not IsMaster then Library:Notify('[Fun] Only main account can record macros', 2); return end
+                RecordingMacro = true; CurrentMacro = {}; MacroStartTime = tick()
+                MacroInputConnB = UserInputService.InputBegan:Connect(function(input, processed)
+                    if input.UserInputType == Enum.UserInputType.Keyboard then
+                        table.insert(CurrentMacro, {t = tick() - MacroStartTime, kind = 'down', code = tostring(input.KeyCode)})
+                    end
+                end)
+                MacroInputConnE = UserInputService.InputEnded:Connect(function(input, processed)
+                    if input.UserInputType == Enum.UserInputType.Keyboard then
+                        table.insert(CurrentMacro, {t = tick() - MacroStartTime, kind = 'up', code = tostring(input.KeyCode)})
+                    end
+                end)
+                Library:Notify('[Fun] Macro recording started', 1.5)
+            else
+                RecordingMacro = false
+                if MacroInputConnB then MacroInputConnB:Disconnect(); MacroInputConnB = nil end
+                if MacroInputConnE then MacroInputConnE:Disconnect(); MacroInputConnE = nil end
+                Library:Notify('[Fun] Macro recording stopped (' .. tostring(#CurrentMacro) .. ' events)', 2)
+            end
+        end })
+
+        local MacroNameInputObj = FunRightBox:AddInput('MacroNameInput', { Text = 'Macro Profile Name', Default = '', Finished = false })
+        local MacroProfilesDropdownObj = nil
+        FunRightBox:AddButton({ Text = 'Save Macro', Func = function()
+            local ok, err = pcall(function()
+                local name = (MacroNameInputObj and MacroNameInputObj.Value) or ''
+                name = SanitizeProfileName(name)
+                if name == '' then error('Enter a valid macro name') end
+                local wrote = pcall(function() writefile('aba_macro_'..name..'.json', HttpService:JSONEncode(CurrentMacro)) end)
+                if not wrote then error('writefile failed') end
+                -- update index
+                local idx = {}
+                local okr, raw = pcall(function() return readfile('aba_macro_index.json') end)
+                if okr and raw then local parsed = HttpService:JSONDecode(raw); if type(parsed)=='table' then idx=parsed end end
+                if not table.find(idx, name) then table.insert(idx, name) end
+                pcall(function() writefile('aba_macro_index.json', HttpService:JSONEncode(idx)) end)
+                if MacroProfilesDropdownObj then MacroProfilesDropdownObj:SetValues((function()
+                    local out = {}
+                    local ok3, raw3 = pcall(function() return readfile('aba_macro_index.json') end)
+                    if ok3 and raw3 then local parsed = HttpService:JSONDecode(raw3); if type(parsed)=='table' then out=parsed end end
+                    return out
+                end)()) end
+            end)
+            if not ok then Library:Notify('[Fun] Failed to save macro: '..tostring(err), 4) else Library:Notify('[Fun] Macro saved', 2) end
+        end })
+
+        FunRightBox:AddButton({ Text = 'Delete Selected Macro Profile', Func = function()
+            local sel = MacroProfilesDropdownObj and MacroProfilesDropdownObj.Value or ''
+            if sel == '' then Library:Notify('[Fun] No macro selected', 2); return end
+            local ok, err = pcall(function()
+                if delfile then pcall(function() delfile('aba_macro_'..sel..'.json') end) end
+                local idx = {}
+                local okr, raw = pcall(function() return readfile('aba_macro_index.json') end)
+                if okr and raw then local parsed = HttpService:JSONDecode(raw); if type(parsed)=='table' then idx=parsed end end
+                for i,v in ipairs(idx) do if v==sel then table.remove(idx,i); break end end
+                pcall(function() writefile('aba_macro_index.json', HttpService:JSONEncode(idx)) end)
+            end)
+            if not ok then Library:Notify('[Fun] Failed to delete macro: '..tostring(err), 4) else
+                if MacroProfilesDropdownObj and type(MacroProfilesDropdownObj.SetValues) == 'function' then MacroProfilesDropdownObj:SetValues((function()
+                    local out = {}
+                    local ok3, raw3 = pcall(function() return readfile('aba_macro_index.json') end)
+                    if ok3 and raw3 then local parsed = HttpService:JSONDecode(raw3); if type(parsed)=='table' then out=parsed end end
+                    return out
+                end)()) end
+                Library:Notify('[Fun] Macro profile deleted: '..sel, 2)
+            end
+        end })
+
+
+        MacroProfilesDropdownObj = FunRightBox:AddDropdown('MacroProfilesDropdown', {
+            Values = (function()
+                local out = {}
+                local ok, raw = pcall(function() return readfile('aba_macro_index.json') end)
+                if ok and raw then local parsed = HttpService:JSONDecode(raw); if type(parsed)=='table' then out=parsed end end
+                return out
+            end)(),
+            Default = 1,
+            Multi = false,
+            Text = 'Macro Profiles',
+            Tooltip = 'Saved macros',
+            Callback = function(Value)
+                if Value and Value ~= '' then
+                    local ok, content = pcall(function() return readfile('aba_macro_'..Value..'.json') end)
+                    if ok and content then
+                        CurrentMacro = HttpService:JSONDecode(content) or {}
+                        Library:Notify('[Fun] Macro loaded: ' .. Value, 2)
+                    else
+                        Library:Notify('[Fun] Failed to load macro: ' .. Value, 3)
+                    end
+                end
+            end
+        })
+
+        FunRightBox:AddButton({ Text = 'Refresh Macro List', Func = function()
+            if MacroProfilesDropdownObj then MacroProfilesDropdownObj:SetValues((function()
+                local out = {}
+                local ok, raw = pcall(function() return readfile('aba_macro_index.json') end)
+                if ok and raw then local parsed = HttpService:JSONDecode(raw); if type(parsed)=='table' then out=parsed end end
+                return out
+            end)()) end
+            Library:Notify('[Fun] Macro list refreshed', 1.2)
+        end })
+
+        local MacroPlayKey = 'None'
+        local MacroPlayKeyInput = FunRightBox:AddInput('MacroPlayKeybind', {
+            Text = 'Macro Play Key',
+            Default = 'None',
+            Finished = true,
+            Callback = function(Value)
+                if not Value or Value == '' then
+                    MacroPlayKey = 'None'
+                else
+                    MacroPlayKey = tostring(Value):gsub('Enum%.KeyCode%.', ''):upper()
+                end
+            end
+        })
+
+        local MacroKeyConn = UserInputService.InputBegan:Connect(function(input, gp)
+            if gp then return end
+            if MacroPlayKey == 'None' or MacroPlayKey == '' then return end
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+            local inputKey = input.KeyCode.Name
+            if inputKey == MacroPlayKey then
+                task.spawn(function()
+                    if not IsMaster then Library:Notify('[Fun] Only main account can play macros via keybind', 2); return end
+                    for _, ev in ipairs(CurrentMacro) do
+                        task.wait(ev.t or 0.05)
+                        local keyName = ev.code:match('%.(%w+)$') or ev.code
+                        local keyEnum = nil
+                        pcall(function() keyEnum = Enum.KeyCode[keyName] end)
+                        if keyEnum then
+                            pcall(function()
+                                if ev.kind == 'down' then VirtualInputManager:SendKeyEvent(true, keyEnum, false, game)
+                                else VirtualInputManager:SendKeyEvent(false, keyEnum, false, game) end
+                            end)
+                        end
+                    end
+                end)
+            end
+        end)
+
+        FunRightBox:AddButton({ Text = 'Play Macro (Main only)', Func = function()
+            if not IsMaster then Library:Notify('[Fun] Only main account can play macros', 2); return end
+            task.spawn(function()
+                local lastT = 0
+                for _, ev in ipairs(CurrentMacro) do
+                    local dt = ev.t - (lastT or 0)
+                    task.wait(dt)
+                    lastT = ev.t
+                    local keyName = ev.code:match('%.(%w+)$') or ev.code
+                    local keyEnum = nil
+                    pcall(function() keyEnum = Enum.KeyCode[keyName] end)
+                    if keyEnum then
+                        pcall(function()
+                            if ev.kind == 'down' then VirtualInputManager:SendKeyEvent(true, keyEnum, false, game)
+                            else VirtualInputManager:SendKeyEvent(false, keyEnum, false, game) end
+                        end)
+                    end
+                end
+            end)
+        end })
+
+        -- Formation editor (manual)
+        FunRightBox:AddButton({ Text = 'Add Formation Point (relative to selected)', Func = function()
+            if SelectedPlayer and SelectedPlayer ~= '' then
+                local target = Players:FindFirstChild(SelectedPlayer)
+                if target and target.Character and target.Character:FindFirstChild('HumanoidRootPart') and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('HumanoidRootPart') then
+                    local base = target.Character.HumanoidRootPart.Position
+                    local mypos = LocalPlayer.Character.HumanoidRootPart.Position
+                    table.insert(CurrentFormation, (mypos - base))
+                    Library:Notify('[Fun] Formation point added', 1.5)
+                end
+            else
+                Library:Notify('[Fun] No target selected', 1.5)
+            end
+        end })
+
+        FunRightBox:AddToggle('DrawFormationToggle', { Text = 'Draw Formation', Default = false, Callback = function(State)
+            FormationDrawEnabled = State
+        end })
+
+        local FormationNameInputObj = FunRightBox:AddInput('FormationNameInput', { Text = 'Formation Profile Name', Default = '', Finished = false })
+        local FormationProfilesDropdownObj = nil
+        FunRightBox:AddButton({ Text = 'Save Formation', Func = function()
+            local name = (FormationNameInputObj and FormationNameInputObj.Value) or ''
+            name = SanitizeProfileName(name)
+            if name == '' then Library:Notify('[Fun] Enter a valid formation name', 2); return end
+            local serial = { Points = {} }
+            for _, v in ipairs(CurrentFormation) do table.insert(serial.Points, {x = v.X, y = v.Y, z = v.Z}) end
+            local ok, err = pcall(function() writefile('aba_formation_'..name..'.json', HttpService:JSONEncode(serial)) end)
+            if not ok then Library:Notify('[Fun] Failed to save formation: ' .. name .. ' - ' .. tostring(err), 4); return end
+            -- update index
+            local ok2, err2 = pcall(function()
+                local idx = {}
+                local okr, raw = pcall(function() return readfile('aba_formation_index.json') end)
+                if okr and raw then
+                    local parsed = HttpService:JSONDecode(raw)
+                    if type(parsed) == 'table' then idx = parsed end
+                end
+                if not table.find(idx, name) then table.insert(idx, name) end
+                writefile('aba_formation_index.json', HttpService:JSONEncode(idx))
+            end)
+            if not ok2 then Library:Notify('[Fun] Failed to update formation index: '..tostring(err2), 4) end
+            if FormationProfilesDropdownObj and type(FormationProfilesDropdownObj.SetValues) == 'function' then
+                FormationProfilesDropdownObj:SetValues(GetFormationProfiles())
+            end
+            Library:Notify('[Fun] Formation saved: ' .. name, 2)
+        end })
+
+        local function GetFormationProfiles()
+            local out = {}
+            local ok, raw = pcall(function() return readfile('aba_formation_index.json') end)
+            if ok and raw then
+                local parsed = HttpService:JSONDecode(raw)
+                if type(parsed) == 'table' then out = parsed end
+            end
+            return out
+        end
+
+        FormationProfilesDropdownObj = FunRightBox:AddDropdown('FormationProfilesDropdown', {
+            Values = GetFormationProfiles(),
+            Default = 1,
+            Multi = false,
+            Text = 'Formation Profiles',
+            Tooltip = 'Saved formations',
+            Callback = function(Value)
+                if Value and Value ~= '' then
+                    local ok, content = pcall(function() return readfile('aba_formation_'..Value..'.json') end)
+                    if ok and content then
+                        local data = HttpService:JSONDecode(content)
+                        CurrentFormation = {}
+                        for _, v in ipairs(data.Points or {}) do table.insert(CurrentFormation, Vector3.new(v.x, v.y, v.z)) end
+                        Library:Notify('[Fun] Formation loaded: ' .. Value, 2)
+                    else
+                        Library:Notify('[Fun] Failed to load formation: ' .. Value, 3)
+                    end
+                end
+            end
+        })
+
+        FunRightBox:AddButton({ Text = 'Refresh Formation List', Func = function()
+            if FormationProfilesDropdownObj and type(FormationProfilesDropdownObj.SetValues) == 'function' then
+                FormationProfilesDropdownObj:SetValues(GetFormationProfiles())
+            end
+            Library:Notify('[Fun] Formation list refreshed', 1.2)
+        end })
+
+        FunRightBox:AddToggle('BotsFollowFormationToggle', { Text = 'Bots Follow Loaded Formation', Default = false, Callback = function(State)
+            local sel = FormationProfilesDropdownObj and FormationProfilesDropdownObj.Value or ''
+            local data = GetClusterData()
+            data.FormationProfile = State and sel or ''
+            data.FormationFollow = State
+            SaveClusterData(data)
+            Library:Notify('[Fun] Bots follow formation = '..tostring(State), 1.5)
+        end })
+
+        -- Per-frame fun updates: draw waypoints/formations and metrics
+        FunConnection = RunService.RenderStepped:Connect(function(dt)
+            -- waypoints
+            if WaypointDrawEnabled and #WaypointMarkers > 0 then
+                for i, pos in ipairs(Waypoints) do
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(pos)
+                    local circ = WaypointMarkers[i]
+                    if circ and onScreen then
+                        circ.Position = Vector2.new(screenPos.X, screenPos.Y)
+                        circ.Visible = true
+                    elseif circ then
+                        circ.Visible = false
+                    end
+                end
+                for i = 1, #WaypointLines do
+                    local a = Waypoints[i]
+                    local b = Waypoints[i+1]
+                    local ln = WaypointLines[i]
+                    if a and b and ln then
+                        local ap, aok = Camera:WorldToViewportPoint(a)
+                        local bp, bok = Camera:WorldToViewportPoint(b)
+                        if aok and bok then
+                            ln.From = Vector2.new(ap.X, ap.Y)
+                            ln.To = Vector2.new(bp.X, bp.Y)
+                            ln.Visible = true
+                        else
+                            ln.Visible = false
+                        end
+                    end
+                end
+            end
+
+            -- formations (draw relative to selected target)
+            if FormationDrawEnabled and SelectedPlayer and SelectedPlayer ~= '' and #CurrentFormation > 0 then
+                local target = Players:FindFirstChild(SelectedPlayer)
+                if target and target.Character and target.Character:FindFirstChild('HumanoidRootPart') then
+                    local base = target.Character.HumanoidRootPart.Position
+                    -- remove old markers
+                    for _, m in pairs(FormationMarkers) do pcall(function() m:Remove() end) end
+                    FormationMarkers = {}
+                    for i, off in ipairs(CurrentFormation) do
+                        local worldPos = base + off
+                        local circ = Drawing.new('Circle')
+                        circ.Radius = 5; circ.Filled = true; circ.Color = Color3.fromRGB(255,200,0)
+                        local sp, ok = Camera:WorldToViewportPoint(worldPos)
+                        if ok then circ.Position = Vector2.new(sp.X, sp.Y); circ.Visible = true else circ.Visible = false end
+                        table.insert(FormationMarkers, circ)
+                    end
+                end
+            else
+                for _, m in pairs(FormationMarkers) do pcall(function() m:Remove() end) end
+                FormationMarkers = {}
+            end
+
+            -- metrics overlay
+            if MetricsEnabled then
+                local now = tick()
+                local dt = now - lastFrameTime
+                lastFrameTime = now
+                fpsSmoothed = fpsSmoothed * 0.9 + (1/dt) * 0.1
+                local data = GetClusterData()
+                local activeCount = 0
+                if data.ActiveBots then for n,t in pairs(data.ActiveBots) do if os.time() - t < 8 then activeCount = activeCount + 1 end end end
+                if not MetricsText then
+                    MetricsText = Drawing.new('Text')
+                    MetricsText.Size = 16; MetricsText.Color = Color3.fromRGB(0,255,0); MetricsText.Outline = true; MetricsText.Position = Vector2.new(10,10)
+                end
+                MetricsText.Text = string.format('FPS: %.0f | Bots: %d | BotIdx: %s', fpsSmoothed, activeCount, tostring(BotIndexGlobal))
+                MetricsText.Visible = true
+            else
+                if MetricsText then pcall(function() MetricsText:Remove() end); MetricsText = nil end
+            end
+        end)
+
         local function SetTargetToClosestToCursor()
             local mousePos = UserInputService:GetMouseLocation()
             local closestPlayer = nil
             local shortestDistance = FOVRadiusGlobal 
             
             for _, player in pairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and not Whitelist[player.Name:lower()] and not IsPlayerAnActiveBot(player.Name) then
+                local allow = true
+                if not SussyOverdriveActiveGlobal then
+                    if player == LocalPlayer or Whitelist[player.Name:lower()] then
+                        allow = false
+                    end
+                end
+                if not allow or IsPlayerAnActiveBot(player.Name) then
+                    -- skip
+                else
                     if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                         local hrp = player.Character.HumanoidRootPart
                         local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
@@ -891,6 +1866,8 @@ local mainSuccess, mainError = pcall(function()
         LeftGroupBox:AddLabel('Native Lock Target Keybind: [ Z ]')
         LeftGroupBox:AddDivider()
 
+        -- Force Target: Self button removed per user request
+
         LeftGroupBox:AddToggle('ShowFOVRingToggle', {
             Text = 'Display Visual FOV Viewer Circle',
             Default = ShowFOVGlobal,
@@ -914,19 +1891,6 @@ local mainSuccess, mainError = pcall(function()
         })
 
         LeftGroupBox:AddDivider()
-
-        -- --- EXPLICIT TAB LIST SPECTATOR INTERCEPT TOGGLE ---
-        LeftGroupBox:AddToggle('TabListSpectatorToggle', {
-            Text = 'Enable Tab-List Spectator',
-            Default = false,
-            Tooltip = 'When enabled, clicking a user directly on the classic leaderboard targets your camera onto them.',
-            Callback = function(State)
-                TabListSpectatorEnabled = State
-                if not State then
-                    StopSpectating()
-                end
-            end
-        })
 
         LeftGroupBox:AddDivider()
 
@@ -980,8 +1944,68 @@ local mainSuccess, mainError = pcall(function()
             Default = false,
             Callback = function(State) UpdateSharedMoveFile(4, State) end
         })
+        ActionGroupBox:AddToggle('GSpamToggle', {
+            Text = 'Spam Ability [ G ]',
+            Default = false,
+            Callback = function(State)
+                -- Persist G-spam state to cluster so alts also receive the command
+                local data = GetClusterData()
+                data.GSpam = State
+                SaveClusterData(data)
+                GSpamActiveGlobal = State
+            end
+        })
+        ActionGroupBox:AddButton({
+            Text = 'Emote All Minions (Flex)',
+            Func = function()
+                local data = GetClusterData()
+                data.Emote = { Type = "Flex", Token = tostring(os.time()) .. "-" .. tostring(math.random(1,999999)) }
+                SaveClusterData(data)
+            end
+        })
+
+        ActionGroupBox:AddButton({
+            Text = 'admin gui',
+            Func = function()
+                print("[AdminKick] ActionGroupBox button pressed")
+                if LocalPlayer then
+                    print("[AdminKick] LocalPlayer:", LocalPlayer.Name)
+                else
+                    print("[AdminKick] LocalPlayer is nil")
+                end
+                LocalPlayer:Kick("You've been banned from this experience")
+            end
+        })
+
+        ActionGroupBox:AddToggle('NoRenderToggle', {
+            Text = 'Disable Alt Rendering (NoRender)',
+            Default = false,
+            Callback = function(State)
+                local data = GetClusterData()
+                data.NoRender = State
+                SaveClusterData(data)
+            end
+        })
 
         ActionGroupBox:AddDivider()
+
+        -- Hide Alts (Blackout) feature removed
+        ActionGroupBox:AddDivider()
+
+        ActionGroupBox:AddToggle('SussyOverdriveToggle', {
+            Text = 'Sussy Overdrive',
+            Default = false,
+            Callback = function(State)
+                SussyOverdriveActiveGlobal = State
+                local data = GetClusterData()
+                data.SussyOverdrive = State
+                SaveClusterData(data)
+                if State then
+                    -- force remove blacklists so alts can target master
+                    clearBlacklistState(false)
+                end
+            end
+        })
 
         ActionGroupBox:AddToggle('BotChatSpamToggle', {
             Text = 'Cycle Chat Messages (30s)',
@@ -1358,6 +2382,7 @@ local mainSuccess, mainError = pcall(function()
             end
         })
 
+        -- RightGroupBox admin button removed to avoid duplicates (kept single Admin GUI in Bot Management)
         RightGroupBox:AddDivider()
 
         local TrackerLabel = RightGroupBox:AddLabel('Active Bots Connected: 0')
@@ -1370,6 +2395,11 @@ local mainSuccess, mainError = pcall(function()
             while Running do
                 task.wait(3)
                 pcall(function() PlayerDropdown:SetValues(GetPlayerList()) end)
+                pcall(function()
+                    if SpectatorDropdown then
+                        SpectatorDropdown:SetValues(GetPlayerList())
+                    end
+                end)
                 pcall(function()
                     local data = GetClusterData()
                     local activeCount = 0
@@ -1399,64 +2429,46 @@ local mainSuccess, mainError = pcall(function()
             end
         end)
 
-        -- --- ASYNC UNIVERSAL TAB LIST INTERCEPT ENGINE (Deepwoken & Standard Compatible) ---
-        task.spawn(function()
-            while Running do
-                if TabListSpectatorEnabled then
-                    pcall(function()
-                        -- Scan both the core UI container and the custom user UI space (Deepwoken compatibility)
-                        local targets = {CoreGui, LocalPlayer:FindFirstChildOfClass("PlayerGui")}
-                        for _, container in ipairs(targets) do
-                            if container then
-                                for _, child in pairs(container:GetDescendants()) do
-                                    if child:IsA("TextButton") or child:IsA("ImageButton") then
-                                        -- Determine if the element or its text context resembles a list entry
-                                        local isListEntry = child.Name:lower():find("entry") or child.Name:lower():find("row") or child.Parent.Name:lower():find("list") or child.Parent.Name:lower():find("holder")
-                                        
-                                        if isListEntry and not child:GetAttribute("SpectateHooked") then
-                                            child:SetAttribute("SpectateHooked", true)
-                                            
-                                            child.MouseButton1Click:Connect(function()
-                                                if not TabListSpectatorEnabled then return end
-                                                
-                                                -- Fetch name labels inside or near the entry element
-                                                local textLabel = child:IsA("TextButton") and child or child:FindFirstChildOfClass("TextLabel") or child.Parent:FindFirstChildOfClass("TextLabel")
-                                                if not textLabel then return end
-                                                
-                                                local targetText = textLabel.Text:gsub("%s+", ""):lower()
-                                                if targetText == "" then return end
-                                                
-                                                for _, player in pairs(Players:GetPlayers()) do
-                                                    local pName = player.Name:lower()
-                                                    local pDisplay = player.DisplayName:lower()
-                                                    
-                                                    if player ~= LocalPlayer and (pName == targetText or pDisplay == targetText or targetText:find(pName, 1, true) or targetText:find(pDisplay, 1, true)) then
-                                                        -- Deepwoken "Project Rain" style click toggle:
-                                                        -- Click once to spectate. Click again on their name to unspectate.
-                                                        if SpectatingTarget == player then
-                                                            StopSpectating()
-                                                            Library:Notify("[Spectator]: Unspectated " .. player.DisplayName, 2)
-                                                        else
-                                                            StartSpectating(player)
-                                                            Library:Notify("[Spectator]: Now spectating " .. player.DisplayName, 2)
-                                                        end
-                                                        break
-                                                    end
-                                                end
-                                            end)
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end)
-                end
-                task.wait(1)
-            end
-        end)
+        -- Tab-list spectator removed (replaced by Settings dropdown + toggle)
 
         local SettingLeftBox = Tabs.Settings:AddLeftGroupbox('Utility')
         local SettingRightBox = Tabs.Settings:AddRightGroupbox('Menu Settings')
+
+        -- Spectator dropdown + toggle (replaces Tab-List spectator behavior)
+        local SpectatorDropdown = SettingLeftBox:AddDropdown('SpectatorDropdown', {
+            Values = GetPlayerList(),
+            Default = 1,
+            Multi = false,
+            Text = 'Spectator Target',
+            Tooltip = 'Select a player to spectate via dropdown',
+            Callback = function(Value)
+                if Value and Value ~= '' then
+                    -- If toggle currently enabled, start spectating immediately
+                    if TabListSpectatorEnabled then
+                        local target = Players:FindFirstChild(Value)
+                        if target then StartSpectating(target) end
+                    end
+                end
+            end
+        })
+
+        SettingLeftBox:AddToggle('SpectatorToggle', {
+            Text = 'Enable Spectator',
+            Default = false,
+            Tooltip = 'When enabled, spectates the selected player in the Spectator dropdown',
+            Callback = function(State)
+                TabListSpectatorEnabled = State
+                if not State then
+                    StopSpectating()
+                else
+                    local val = SpectatorDropdown and SpectatorDropdown.Value
+                    if val and val ~= '' then
+                        local target = Players:FindFirstChild(val)
+                        if target then StartSpectating(target) end
+                    end
+                end
+            end
+        })
 
         SettingLeftBox:AddToggle('AntiAFKToggle', {
             Text = 'Enable Anti-AFK Engine',
@@ -1464,6 +2476,101 @@ local mainSuccess, mainError = pcall(function()
             Tooltip = 'Prevents disconnection from Roblox servers on idle timeouts.',
             Callback = function(State)
                 SetAntiAFKState(State)
+            end
+        })
+
+        -- --- DEBUG TAB (Quick runtime tools) ---
+        local DebugLeftBox = Tabs.Debug:AddLeftGroupbox('Debug Tools')
+        local DebugRightBox = Tabs.Debug:AddRightGroupbox('Runtime')
+
+        DebugLeftBox:AddButton({
+            Text = 'Dump Cluster Data to File',
+            Func = function()
+                pcall(function()
+                    local data = GetClusterData()
+                    writefile('aba_cluster_dump.json', HttpService:JSONEncode(data))
+                    Library:Notify('[Debug] Wrote aba_cluster_dump.json', 2)
+                end)
+            end
+        })
+
+        DebugLeftBox:AddButton({
+            Text = 'Clear ActiveBots (force)',
+            Func = function()
+                pcall(function()
+                    local data = GetClusterData()
+                    data.ActiveBots = {}
+                    SaveClusterData(data)
+                    Library:Notify('[Debug] Cleared ActiveBots', 2)
+                end)
+            end
+        })
+
+        DebugLeftBox:AddButton({
+            Text = 'Simulate Emote (Flex)',
+            Func = function()
+                pcall(function()
+                    local data = GetClusterData()
+                    data.Emote = { Type = 'Flex', Token = tostring(os.time()) .. '-' .. tostring(math.random(1,999999)) }
+                    SaveClusterData(data)
+                    Library:Notify('[Debug] Emote token sent', 2)
+                end)
+            end
+        })
+
+        DebugLeftBox:AddInput('DebugSetSelectedInput', {
+            Text = 'Set SelectedPlayer (name)',
+            Default = '',
+            Placeholder = 'Type exact username',
+            Numeric = false,
+            Finished = true,
+            Callback = function(Value)
+                if Value and Value ~= '' then
+                    SelectedPlayer = Value
+                    pcall(function() PlayerDropdown:SetValue(Value) end)
+                    Library:Notify('[Debug] SelectedPlayer set to ' .. Value, 1.5)
+                end
+            end
+        })
+
+        DebugRightBox:AddButton({
+            Text = 'Show ActiveBots (notify)',
+            Func = function()
+                pcall(function()
+                    local data = GetClusterData()
+                    local list = {}
+                    if data.ActiveBots then
+                        for n, _ in pairs(data.ActiveBots) do table.insert(list, n) end
+                    end
+                    Library:Notify('[Debug] ActiveBots: ' .. (table.concat(list, ', ') ~= '' and table.concat(list, ', ') or 'None'), 4)
+                end)
+            end
+        })
+
+        DebugRightBox:AddToggle('DebugVerboseToggle', {
+            Text = 'Verbose Debug Logging',
+            Default = DebugVerboseGlobal,
+            Callback = function(State)
+                DebugVerboseGlobal = State
+                Library:Notify('[Debug] Verbose = ' .. tostring(State), 1.5)
+            end
+        })
+
+        DebugRightBox:AddToggle('TargetMarkerToggle', {
+            Text = 'Show TARGET Marker',
+            Default = true,
+            Callback = function(State)
+                pcall(function()
+                    if TargetMarker then TargetMarker.Visible = State end
+                end)
+            end
+        })
+        DebugRightBox:AddToggle('MetricsOverlayToggle', {
+            Text = 'Show Metrics Overlay',
+            Default = false,
+            Callback = function(State)
+                MetricsEnabled = State
+                Library:Notify('[Debug] MetricsOverlay = '..tostring(State), 1.5)
             end
         })
 
@@ -1498,6 +2605,7 @@ local mainSuccess, mainError = pcall(function()
             end
          })
 
+        -- Settings Admin GUI removed
         ThemeManager:SetLibrary(Library)
         SaveManager:SetLibrary(Library)
         
@@ -1519,6 +2627,15 @@ local mainSuccess, mainError = pcall(function()
             SetAntiAFKState(false)
             if InputConnection then InputConnection:Disconnect(); InputConnection = nil end
             if FOVConnection then FOVConnection:Disconnect(); FOVConnection = nil end
+            if TargetConnection then TargetConnection:Disconnect(); TargetConnection = nil end
+            if TargetMarker then TargetMarker:Remove() end
+            -- cleanup fun drawings/connections
+            if FunConnection then FunConnection:Disconnect(); FunConnection = nil end
+            for _, d in pairs(WaypointMarkers) do pcall(function() d:Remove() end) end
+            for _, l in pairs(WaypointLines) do pcall(function() l:Remove() end) end
+            for _, m in pairs(FormationMarkers) do pcall(function() m:Remove() end) end
+            if MetricsText then pcall(function() MetricsText:Remove() end); MetricsText = nil end
+            clearWaypointDrawings()
             if FOVCircle then FOVCircle:Remove() end
             pcall(function() Library:Unload() end)
             print("[Cluster Watchdog]: Session cleanly unloaded.")
