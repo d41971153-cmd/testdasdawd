@@ -32,6 +32,7 @@ local Whitelist = {
     ["wolfking321"] = true, 
     ["nonvertwo"] = true,
     ["max500039alt1"] = true,
+    ["humblegoys"] = true,
 }
 local IsMaster = Whitelist[LocalPlayer.Name:lower()] ~= nil
 
