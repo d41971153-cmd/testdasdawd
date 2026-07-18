@@ -2436,6 +2436,617 @@ local mainSuccess, mainError = pcall(function()
         local SettingLeftBox = Tabs.Settings:AddLeftGroupbox('Utility')
         local SettingRightBox = Tabs.Settings:AddRightGroupbox('Menu Settings')
 
+        -- --- PLAYER ESP (from pasted-text.txt) ---
+        local Players = game:GetService("Players")
+        local RunService = game:GetService("RunService")
+        local UserInputService = game:GetService("UserInputService")
+        local LocalPlayer = Players.LocalPlayer
+
+        local espEnabled = false
+        local playerEsp = {}
+        local cooldownState = {}
+        local COOLDOWN_MAX = 20
+        local espConnections = {}
+
+        local function hasCooldownData(instance)
+            if not instance then return false end
+            local attrs = {"cooldown", "Cooldown", "COOLDOWN", "cd", "CD", "cooldownValue", "CooldownValue", "CoolDown"}
+            for _, attrName in ipairs(attrs) do
+                local value = instance:GetAttribute(attrName)
+                if value ~= nil and value ~= "" and tonumber(value) then
+                    return true
+                end
+            end
+            local child = instance:FindFirstChild("Cooldown") or instance:FindFirstChild("cooldown") or instance:FindFirstChild("COOLDOWN") or instance:FindFirstChild("CD") or instance:FindFirstChild("cd")
+            if child then
+                if child:IsA("NumberValue") or child:IsA("IntValue") or child:IsA("StringValue") then
+                    return tonumber(child.Value) ~= nil
+                end
+            end
+            return false
+        end
+
+        local function isMoveConfiguration(instance)
+            return instance and (instance.ClassName == "Configuration" or instance:IsA("Configuration"))
+        end
+
+        local function getCooldownValue(instance)
+            local attrs = {"cooldown", "Cooldown", "COOLDOWN", "cd", "CD", "cooldownValue", "CooldownValue", "CoolDown"}
+            for _, attrName in ipairs(attrs) do
+                local value = instance:GetAttribute(attrName)
+                if value ~= nil and value ~= "" then
+                    local num = tonumber(value)
+                    if num then
+                        return num
+                    end
+                end
+            end
+
+            local child = instance:FindFirstChild("Cooldown") or instance:FindFirstChild("cooldown") or instance:FindFirstChild("COOLDOWN") or instance:FindFirstChild("CD") or instance:FindFirstChild("cd")
+            if child then
+                if child:IsA("NumberValue") or child:IsA("IntValue") then
+                    return child.Value
+                elseif child:IsA("StringValue") then
+                    return tonumber(child.Value)
+                end
+            end
+
+            return nil
+        end
+
+        local function getMoveData(player)
+            local moves = {}
+            local seenRoots = {}
+
+            local function isMoveCandidate(instance)
+                return isMoveConfiguration(instance) or hasCooldownData(instance)
+            end
+
+            local function isCharacterRoot(instance)
+                return instance == player.Character or (instance:IsA("Model") and instance.Name == player.Name and instance.Parent == workspace)
+            end
+
+            local function getCooldownFromRoot(root)
+                local cooldown = getCooldownValue(root)
+                if cooldown ~= nil then
+                    return cooldown
+                end
+                for _, desc in ipairs(root:GetDescendants()) do
+                    local value = getCooldownValue(desc)
+                    if value ~= nil then
+                        return value
+                    end
+                end
+                return nil
+            end
+
+            local function normalizeName(root, fallback)
+                local function trim(text)
+                    if type(text) ~= "string" then
+                        return ""
+                    end
+                    return text:match("^%s*(.-)%s*$") or ""
+                end
+
+                local name = trim(root.Name)
+                if name == "" or name == player.Name then
+                    local fallbackName = trim(fallback and fallback.Name or "")
+                    if fallbackName ~= "" and fallbackName ~= player.Name then
+                        name = fallbackName
+                    else
+                        name = "Move"
+                    end
+                end
+                return name
+            end
+
+            local function addRoot(root, fallback)
+                if not root or seenRoots[root] or isCharacterRoot(root) then
+                    return
+                end
+
+                local cooldown = getCooldownFromRoot(root)
+                if cooldown == nil and not root:IsA("Tool") and not isMoveConfiguration(root) then
+                    return
+                end
+
+                local moveName = normalizeName(root, fallback)
+                table.insert(moves, {
+                    name = moveName,
+                    cooldown = cooldown or 0,
+                })
+                seenRoots[root] = true
+            end
+
+            local function scanChildren(source)
+                if not source then
+                    return
+                end
+
+                for _, child in ipairs(source:GetChildren()) do
+                    if child:IsA("Tool") or child:IsA("Model") or isMoveConfiguration(child) or hasCooldownData(child) or getCooldownFromRoot(child) ~= nil then
+                        addRoot(child, child)
+                    end
+                end
+            end
+
+            local function scanDescendants(source)
+                if not source then
+                    return
+                end
+
+                for _, node in ipairs(source:GetDescendants()) do
+                    if node:IsA("Tool") or node:IsA("Model") or isMoveConfiguration(node) or hasCooldownData(node) then
+                        local root = node
+                        while root.Parent and root.Parent ~= source and (root.Parent:IsA("Tool") or root.Parent:IsA("Model")) do
+                            root = root.Parent
+                        end
+                        addRoot(root, node)
+                    end
+                end
+            end
+
+            local function scanSource(source)
+                if not source then
+                    return
+                end
+                scanChildren(source)
+                scanDescendants(source)
+            end
+
+            scanSource(player:FindFirstChild("Backpack"))
+            scanSource(player.Character)
+            scanSource(player:FindFirstChild("PlayerScripts"))
+            scanSource(player:FindFirstChild("PlayerGui"))
+            scanSource(player:FindFirstChild("StarterGear"))
+
+            table.sort(moves, function(a, b)
+                return a.name < b.name
+            end)
+
+            return moves
+        end
+
+        local function getChargeValue(player)
+            local function readValue(instance)
+                if not instance then
+                    return nil
+                end
+                if instance:IsA("ValueBase") then
+                    local value = instance.Value
+                    if typeof(value) == "number" then
+                        return value
+                    end
+                end
+                return nil
+            end
+
+            local function scan(source)
+                if not source then
+                    return nil
+                end
+                local candidate = source:FindFirstChild("Charge") or source:FindFirstChild("charge")
+                local value = readValue(candidate)
+                if value ~= nil then
+                    return value
+                end
+                for _, desc in ipairs(source:GetDescendants()) do
+                    if desc.Name == "Charge" or desc.Name == "charge" then
+                        value = readValue(desc)
+                        if value ~= nil then
+                            return value
+                        end
+                    end
+                end
+                return nil
+            end
+
+            return scan(player) or scan(player.Character) or 0
+        end
+
+        local function setEspEnabled(enabled)
+            espEnabled = enabled
+            for _, data in pairs(playerEsp) do
+                if data.billboard then
+                    data.billboard.Enabled = enabled
+                end
+            end
+        end
+
+        local function createMoveBox(number, moveName)
+            local entryFrame = Instance.new("Frame")
+            entryFrame.Name = "MoveEntry" .. tostring(number)
+            entryFrame.Size = UDim2.new(1, 0, 0.26, 0)
+            entryFrame.BackgroundTransparency = 1
+
+            local box = Instance.new("Frame")
+            box.Name = moveName .. "Box"
+            box.Size = UDim2.new(1, 0, 1, 0)
+            box.BackgroundColor3 = Color3.fromRGB(180, 20, 20)
+            box.BorderSizePixel = 0
+            box.Parent = entryFrame
+
+            
+
+            
+            local gradient = Instance.new("UIGradient")
+            gradient.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 30, 30)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 10, 10))
+            })
+            gradient.Rotation = 90
+            gradient.Parent = box
+
+            local cooldownOverlay = Instance.new("Frame")
+            cooldownOverlay.Name = "CooldownOverlay"
+            cooldownOverlay.AnchorPoint = Vector2.new(0, 0)
+            cooldownOverlay.Size = UDim2.new(1, 0, 0, 0)
+            cooldownOverlay.Position = UDim2.new(0, 0, 0, 0)
+            cooldownOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+            cooldownOverlay.BackgroundTransparency = 0
+            cooldownOverlay.BorderSizePixel = 0
+            -- Keep the fill above every move label while the move is cooling down.
+            cooldownOverlay.ZIndex = 20
+            cooldownOverlay.Visible = false
+            cooldownOverlay.Parent = box
+
+            local numLabel = Instance.new("TextLabel")
+            numLabel.ZIndex = 3
+            numLabel.Size = UDim2.new(0.25, 0, 0.25, 0)
+            numLabel.Position = UDim2.new(0.08, 0, 0.05, 0)
+            numLabel.BackgroundTransparency = 1
+            numLabel.Text = tostring(number)
+            numLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            numLabel.TextScaled = true
+            numLabel.Font = Enum.Font.SourceSansBold
+            numLabel.TextXAlignment = Enum.TextXAlignment.Center
+            numLabel.TextYAlignment = Enum.TextYAlignment.Center
+            numLabel.Parent = box
+
+            local cooldownLabel = Instance.new("TextLabel")
+            cooldownLabel.Name = "Cooldown"
+            cooldownLabel.ZIndex = 9
+            cooldownLabel.Size = UDim2.new(0.9, 0, 0.2, 0)
+            cooldownLabel.Position = UDim2.new(0.05, 0, 0.75, 0)
+            cooldownLabel.BackgroundTransparency = 1
+            cooldownLabel.Text = ""
+            cooldownLabel.TextColor3 = Color3.fromRGB(210, 210, 255)
+            cooldownLabel.TextScaled = true
+            cooldownLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+            cooldownLabel.TextStrokeTransparency = 0.7
+            cooldownLabel.Font = Enum.Font.SourceSansSemibold
+            cooldownLabel.TextXAlignment = Enum.TextXAlignment.Center
+            cooldownLabel.TextYAlignment = Enum.TextYAlignment.Center
+            cooldownLabel.Parent = box
+
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Name = "MoveName"
+            nameLabel.ZIndex = 10
+            nameLabel.Size = UDim2.new(0.9, 0, 0.55, 0)
+            nameLabel.Position = UDim2.new(0.05, 0, 0.25, 0)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = moveName
+            nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            nameLabel.TextScaled = true
+            nameLabel.TextWrapped = true
+            nameLabel.TextXAlignment = Enum.TextXAlignment.Center
+            nameLabel.TextYAlignment = Enum.TextYAlignment.Center
+            nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+            nameLabel.TextStrokeTransparency = 0.7
+            nameLabel.Font = Enum.Font.SourceSans
+            nameLabel.Parent = entryFrame
+
+            return {
+                container = entryFrame,
+                box = box,
+                numLabel = numLabel,
+                nameLabel = nameLabel,
+                cooldownLabel = cooldownLabel,
+                cooldownOverlay = cooldownOverlay,
+            }
+        end
+
+        local function createPlayerEsp(character)
+            local player = Players:GetPlayerFromCharacter(character)
+            if not player or player == LocalPlayer then return end
+
+            local rootPart = character:WaitForChild("HumanoidRootPart", 5)
+            if not rootPart then return end
+
+            local existingGui = rootPart:FindFirstChild("PlayerEspGui")
+            if existingGui then
+                existingGui:Destroy()
+            end
+
+            if playerEsp[player] then
+                if playerEsp[player].billboard then
+                    playerEsp[player].billboard:Destroy()
+                end
+                playerEsp[player] = nil
+            end
+
+            local billboard = Instance.new("BillboardGui")
+            billboard.Name = "PlayerEspGui"
+            billboard.Size = UDim2.new(7.5, 0, 6.5, 0)
+            billboard.AlwaysOnTop = true
+            billboard.ExtentsOffset = Vector3.new(0, 0.5, 0)
+            billboard.DistanceLowerLimit = 10
+            billboard.DistanceUpperLimit = 120
+            billboard.Adornee = rootPart
+            billboard.Parent = rootPart
+            billboard.Enabled = espEnabled
+
+            local container = Instance.new("Frame")
+            container.Name = "Container"
+            container.Size = UDim2.new(1, 0, 1, 0)
+            container.BackgroundTransparency = 1
+            container.Parent = billboard
+
+            local verticalBar = Instance.new("Frame")
+            verticalBar.Name = "VerticalBar"
+            verticalBar.Size = UDim2.new(0.12, 0, 1.2, 0)
+            verticalBar.Position = UDim2.new(-0.095, 0, -0.1, 0)
+            verticalBar.BackgroundTransparency = 0.4
+            verticalBar.BackgroundColor3 = Color3.fromRGB(25, 0, 0)
+            verticalBar.BorderSizePixel = 0
+            verticalBar.ClipsDescendants = true
+            verticalBar.Parent = container
+
+            local barStroke = Instance.new("UIStroke")
+            barStroke.Thickness = 5
+            barStroke.Color = Color3.fromRGB(0, 0, 0)
+            barStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            barStroke.Parent = verticalBar
+
+            local barCorner = Instance.new("UICorner")
+            barCorner.CornerRadius = UDim.new(0.1, 0)
+            barCorner.Parent = verticalBar
+
+            local modeFillFrame = Instance.new("Frame")
+            modeFillFrame.Name = "ModeFillFrame"
+            modeFillFrame.Size = UDim2.new(1, 0, 0, 0)
+            modeFillFrame.Position = UDim2.new(0, 0, 0, 0)
+            modeFillFrame.AnchorPoint = Vector2.new(0, 0)
+            modeFillFrame.BackgroundColor3 = Color3.fromRGB(255, 30, 30)
+            modeFillFrame.BorderSizePixel = 0
+            modeFillFrame.ZIndex = 1
+            modeFillFrame.ClipsDescendants = true
+            modeFillFrame.Parent = verticalBar
+
+            local fillGradient = Instance.new("UIGradient")
+            fillGradient.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 90, 90)),
+                ColorSequenceKeypoint.new(0.35, Color3.fromRGB(255, 30, 30)),
+                ColorSequenceKeypoint.new(0.7, Color3.fromRGB(255, 10, 10)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 45, 45))
+            })
+            fillGradient.Rotation = 90
+            fillGradient.Parent = modeFillFrame
+
+            local modeReadyLabel = Instance.new("TextLabel")
+            modeReadyLabel.Name = "ModeReadyLabel"
+            modeReadyLabel.Size = UDim2.new(0.9, 0, 0.12, 0)
+            modeReadyLabel.Position = UDim2.new(0.5, 0, 0.08, 0)
+            modeReadyLabel.AnchorPoint = Vector2.new(0.5, 0)
+            modeReadyLabel.BackgroundTransparency = 1
+            modeReadyLabel.Text = "MODE READY"
+            modeReadyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            modeReadyLabel.TextScaled = true
+            modeReadyLabel.Font = Enum.Font.SourceSansBold
+            modeReadyLabel.TextStrokeTransparency = 0.7
+            modeReadyLabel.ZIndex = 5
+            modeReadyLabel.Visible = false
+            modeReadyLabel.Parent = verticalBar
+
+            local segmentContainer = Instance.new("Frame")
+            segmentContainer.Name = "SegmentContainer"
+            segmentContainer.Size = UDim2.new(1, 0, 1, 0)
+            segmentContainer.BackgroundTransparency = 1
+            segmentContainer.ZIndex = 3
+            segmentContainer.Parent = verticalBar
+
+            local listLayout = Instance.new("UIListLayout")
+            listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            listLayout.Padding = UDim.new(0.005, 0)
+            listLayout.Parent = segmentContainer
+
+            local verticalBarSegments = {}
+            for i = 1, 10 do
+                local segment = Instance.new("Frame")
+                segment.Name = "Segment" .. i
+                segment.Size = UDim2.new(1, 0, 0.095, 0)
+                segment.BackgroundTransparency = 1
+                segment.BorderSizePixel = 1
+                segment.BorderColor3 = Color3.fromRGB(0, 0, 0)
+                segment.LayoutOrder = i
+                segment.ZIndex = 4
+                segment.Parent = segmentContainer
+                verticalBarSegments[i] = segment
+            end
+
+            local moveContainer = Instance.new("Frame")
+            moveContainer.Name = "MoveContainer"
+            moveContainer.Size = UDim2.new(0.30, 0, 1, 0)
+            moveContainer.Position = UDim2.new(0.70, 0, 0, 0)
+            moveContainer.BackgroundTransparency = 1
+            moveContainer.Parent = container
+
+            local moveListLayout = Instance.new("UIListLayout")
+            moveListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            moveListLayout.Padding = UDim.new(0.04, 0)
+            moveListLayout.Parent = moveContainer
+
+            local moveBoxes = {}
+            for i = 1, 4 do
+                local boxData = createMoveBox(i, "move" .. i)
+                boxData.container.LayoutOrder = i
+                boxData.container.Parent = moveContainer
+                moveBoxes[i] = boxData
+            end
+
+            playerEsp[player] = {
+                billboard = billboard,
+                character = character,
+                player = player,
+                moveBoxes = moveBoxes,
+                verticalBarSegments = verticalBarSegments,
+                modeFillFrame = modeFillFrame,
+                modeReadyLabel = modeReadyLabel,
+                cachedMoves = {},
+                lastMoveScan = 0,
+            }
+        end
+
+        local function destroyPlayerEsp(player)
+            local data = playerEsp[player]
+            if data and data.billboard then
+                data.billboard:Destroy()
+            end
+            playerEsp[player] = nil
+            cooldownState[player] = nil
+        end
+
+        local function cleanupOldEsp()
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player.Character then
+                    local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
+                    if rootPart then
+                        local gui = rootPart:FindFirstChild("PlayerEspGui")
+                        if gui then
+                            gui:Destroy()
+                        end
+                    end
+                end
+                playerEsp[player] = nil
+                cooldownState[player] = nil
+            end
+        end
+
+        local function setupPlayer(player)
+            if player == LocalPlayer then return end
+            if player.Character then
+                createPlayerEsp(player.Character)
+            end
+            table.insert(espConnections, player.CharacterAdded:Connect(createPlayerEsp))
+            table.insert(espConnections, player.CharacterRemoving:Connect(function()
+                destroyPlayerEsp(player)
+            end))
+        end
+
+        cleanupOldEsp()
+
+        for _, player in ipairs(Players:GetPlayers()) do
+            setupPlayer(player)
+        end
+        table.insert(espConnections, Players.PlayerAdded:Connect(setupPlayer))
+        table.insert(espConnections, Players.PlayerRemoving:Connect(function(player)
+            destroyPlayerEsp(player)
+        end))
+
+        table.insert(espConnections, RunService.RenderStepped:Connect(function(dt)
+            for player, data in pairs(playerEsp) do
+                local localModeValue = math.clamp(getChargeValue(player), 0, 325)
+                local modeFill = math.clamp(localModeValue / 325, 0, 1)
+                local activeCount = math.clamp(math.ceil(modeFill * #data.verticalBarSegments), 0, #data.verticalBarSegments)
+                for i, segment in ipairs(data.verticalBarSegments) do
+                    if i <= activeCount then
+                        segment.BackgroundColor3 = Color3.fromRGB(255, 45, 45)
+                        segment.BackgroundTransparency = 0
+                    else
+                        segment.BackgroundColor3 = Color3.fromRGB(40, 5, 5)
+                        segment.BackgroundTransparency = 0
+                    end
+                end
+
+                if data.modeFillFrame then
+                    data.modeFillFrame.Size = UDim2.new(1, 0, modeFill, 0)
+                end
+
+                if data.modeReadyLabel then
+                    data.modeReadyLabel.Visible = modeFill >= 1
+                end
+
+                local now = tick()
+                local scanInterval = 0.6
+                if not data.lastMoveScan then data.lastMoveScan = 0 end
+                if not data.cachedMoves then data.cachedMoves = {} end
+                if now - data.lastMoveScan >= scanInterval then
+                    data.cachedMoves = getMoveData(player)
+                    data.lastMoveScan = now
+                end
+                local moves = data.cachedMoves or {}
+                local state = cooldownState[player] or {}
+                for i = 1, 4 do
+                    local boxData = data.moveBoxes[i]
+                    local move = moves[i]
+                    if move and boxData then
+                        local current = move.cooldown or 0
+                        local info = state[move.name] or { maxValue = current }
+                        if current > 0 then
+                            info.maxValue = math.max(info.maxValue, current)
+                        end
+                        state[move.name] = info
+
+                        local moveName = move.name
+                        if type(moveName) ~= "string" or moveName == "" then
+                            moveName = "Move"
+                        end
+                        boxData.nameLabel.Text = moveName
+                        boxData.nameLabel.Visible = true
+                        boxData.nameLabel.TextTransparency = 0
+                        boxData.nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                        boxData.nameLabel.ZIndex = 10
+                        boxData.nameLabel.Size = UDim2.new(0.9, 0, 0.55, 0)
+                        boxData.nameLabel.Position = UDim2.new(0.05, 0, 0.25, 0)
+                        boxData.numLabel.Text = tostring(i)
+                        boxData.numLabel.TextTransparency = 0
+                        boxData.cooldownLabel.TextTransparency = 0
+                        boxData.cooldownLabel.TextColor3 = Color3.fromRGB(210, 210, 255)
+                        boxData.cooldownLabel.ZIndex = 9
+                        boxData.container.Visible = true
+
+                        local ready = current >= COOLDOWN_MAX
+                        if not ready and current > 0 then
+                            local remaining = math.clamp(COOLDOWN_MAX - current, 0, COOLDOWN_MAX)
+                            -- Values count upward: 1–19 are cooling down and 20 is ready.
+                            local fill = math.clamp(remaining / COOLDOWN_MAX, 0, 1)
+                            boxData.cooldownLabel.Text = tostring(math.ceil(remaining)) .. "s"
+                            boxData.cooldownOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+                            boxData.cooldownOverlay.BackgroundTransparency = 0
+                            boxData.cooldownOverlay.Visible = true
+                            boxData.cooldownOverlay.Size = UDim2.new(1, 0, fill, 0)
+                            boxData.cooldownOverlay.Position = UDim2.new(0, 0, 0, 0)
+                            boxData.nameLabel.Visible = false
+                            boxData.numLabel.TextTransparency = 1
+                            boxData.cooldownLabel.TextTransparency = 1
+                        else
+                            boxData.cooldownLabel.Text = "Ready"
+                            boxData.cooldownOverlay.Visible = false
+                            boxData.cooldownOverlay.BackgroundTransparency = 1
+                            boxData.cooldownOverlay.Size = UDim2.new(1, 0, 0, 0)
+                            boxData.nameLabel.Visible = true
+                            boxData.numLabel.TextTransparency = 0
+                            boxData.cooldownLabel.TextTransparency = 0
+                        end
+                        boxData.box.Visible = true
+                    elseif boxData then
+                        boxData.box.Visible = false
+                    end
+                end
+                cooldownState[player] = state
+            end
+        end))
+
+
+        SettingLeftBox:AddToggle('PlayerEspToggle', {
+            Text = 'Enable Player ESP',
+            Default = false,
+            Tooltip = 'Shows the pasted ESP overlay for other players.',
+            Callback = function(State)
+                setEspEnabled(State)
+            end
+        })
+
         -- Spectator dropdown + toggle (replaces Tab-List spectator behavior)
         local SpectatorDropdown = SettingLeftBox:AddDropdown('SpectatorDropdown', {
             Values = GetPlayerList(),
@@ -2478,6 +3089,46 @@ local mainSuccess, mainError = pcall(function()
             Tooltip = 'Prevents disconnection from Roblox servers on idle timeouts.',
             Callback = function(State)
                 SetAntiAFKState(State)
+            end
+        })
+
+        -- --- DEVICE SPOOFER ---
+        local DeviceSpoofEnabled = false
+        local SelectedSpoofDevice = 'Keyboard'
+        local DevicePlatformValues = {
+            Console = 'Controller',
+            Mobile = 'Mobile',
+            Keyboard = 'Keyboard'
+        }
+
+        local function applyDeviceSpoof()
+            if not DeviceSpoofEnabled then return end
+            local platformEvent = ReplicatedStorage:FindFirstChild('Platform')
+            local platformValue = DevicePlatformValues[SelectedSpoofDevice]
+            if platformEvent and platformEvent:IsA('RemoteEvent') and platformValue then
+                platformEvent:FireServer(platformValue)
+            end
+        end
+
+        SettingLeftBox:AddDropdown('SpoofDeviceDropdown', {
+            Values = { 'Console', 'Mobile', 'Keyboard' },
+            Default = 3,
+            Multi = false,
+            Text = 'Spoof Device Type',
+            Tooltip = 'Choose the platform sent while Spoof Device is enabled.',
+            Callback = function(Value)
+                SelectedSpoofDevice = Value
+                applyDeviceSpoof()
+            end
+        })
+
+        SettingLeftBox:AddToggle('SpoofDeviceToggle', {
+            Text = 'Spoof Device',
+            Default = false,
+            Tooltip = 'Sends the selected device type to the Platform event.',
+            Callback = function(State)
+                DeviceSpoofEnabled = State
+                applyDeviceSpoof()
             end
         })
 
@@ -2637,6 +3288,10 @@ local mainSuccess, mainError = pcall(function()
             for _, l in pairs(WaypointLines) do pcall(function() l:Remove() end) end
             for _, m in pairs(FormationMarkers) do pcall(function() m:Remove() end) end
             if MetricsText then pcall(function() MetricsText:Remove() end); MetricsText = nil end
+            for _, connection in ipairs(espConnections) do
+                pcall(function() connection:Disconnect() end)
+            end
+            cleanupOldEsp()
             clearWaypointDrawings()
             if FOVCircle then FOVCircle:Remove() end
             pcall(function() Library:Unload() end)
