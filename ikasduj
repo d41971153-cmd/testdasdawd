@@ -14,13 +14,26 @@ local SPIN_SPEED = 50
 local CHAT_COOLDOWN = 0.5 
 local BASE_MESSAGE = "i like cheating on roblox because im weird"
 
+-- Clean up any existing instances of this script
+if _G.ToggleMaxSpamCleanup then
+    pcall(_G.ToggleMaxSpamCleanup)
+end
+
 -- Create the ScreenGui container
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "ToggleMaxSpamWithBypass"
 screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 999999
-screenGui.Enabled = false
-screenGui.Parent = CoreGui
+screenGui.Enabled = true -- Enabled on startup so it immediately runs
+
+-- Try parenting to PlayerGui if CoreGui blocks script execution
+local parentGui = CoreGui
+pcall(function()
+    if not pcall(function() local _ = CoreGui.Name end) then
+        parentGui = localPlayer:WaitForChild("PlayerGui")
+    end
+end)
+screenGui.Parent = parentGui
 
 -- Create the black frame
 local blackFrame = Instance.new("Frame")
@@ -30,20 +43,43 @@ blackFrame.BorderSizePixel = 0
 blackFrame.Active = true
 blackFrame.Parent = screenGui
 
+-- Visual Indicator Text
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, 0, 0.2, 0)
+statusLabel.Position = UDim2.new(0, 0, 0.4, 0)
+statusLabel.BackgroundTransparency = 1
+statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+statusLabel.TextSize = 28
+statusLabel.Font = Enum.Font.SourceSansBold
+statusLabel.Text = "SPAM & SPIN ENABLED\n[Press L to Toggle]"
+statusLabel.Parent = blackFrame
+
 -- Generates a unique numeric identifier to append to messages
 local function appendRandomNumber(message)
     local uniqueID = math.random(100000, 999999)
     return string.format("%s [%d]", message, uniqueID)
 end
 
--- Function to safely send chat messages using standard Roblox Chat APIs
+-- Safe chat message sender
 local function sendChatMessage(message)
     local formattedMessage = appendRandomNumber(message)
     
-    if TextChatService and TextChatService:FindFirstChild("TextChannels") and TextChatService.TextChannels:FindFirstChild("RBXGeneral") then
-        TextChatService.TextChannels.RBXGeneral:SendAsync(formattedMessage)
-    else
-        local sayMessageEvent = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents") and ReplicatedStorage.DefaultChatSystemChatEvents:FindFirstChild("SayMessageRequest")
+    -- TextChatService (New Chat System)
+    if TextChatService and TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+        local textChannels = TextChatService:FindFirstChild("TextChannels")
+        if textChannels then
+            local generalChannel = textChannels:FindFirstChild("RBXGeneral") or textChannels:FindFirstChild("RBXSystem")
+            if generalChannel then
+                generalChannel:SendAsync(formattedMessage)
+                return
+            end
+        end
+    end
+    
+    -- DefaultChatSystemChatEvents (Legacy Chat System)
+    local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+    if chatEvents then
+        local sayMessageEvent = chatEvents:FindFirstChild("SayMessageRequest")
         if sayMessageEvent and sayMessageEvent:IsA("RemoteEvent") then
             sayMessageEvent:FireServer(formattedMessage, "All")
         end
@@ -85,9 +121,19 @@ local function toggleSystems(isEnabled)
     end
 end
 
+-- Cleanup function for re-executing
+_G.ToggleMaxSpamCleanup = function()
+    toggleSystems(false)
+    if screenGui then screenGui:Destroy() end
+end
+
+-- Initial start on execution
+toggleSystems(true)
+
 -- Toggle handler using the L key
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == Enum.KeyCode.L then
+    -- Disabled gameProcessed check so pressing 'L' always toggles
+    if input.KeyCode == Enum.KeyCode.L then
         screenGui.Enabled = not screenGui.Enabled
         toggleSystems(screenGui.Enabled)
     end
